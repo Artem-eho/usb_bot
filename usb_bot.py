@@ -11,6 +11,8 @@ from telegram.ext import (
     Application,
     CallbackQueryHandler,
     CommandHandler,
+    filters,
+    MessageHandler,
     ContextTypes,
     ConversationHandler,
 )
@@ -144,8 +146,10 @@ async def three(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             text="Загрузка завершена, что дальше?", reply_markup=reply_markup
         )
     except Exception as err:
-        await loading_message.edited_message(
-            text=f"упс, что-то пошло не так {err}",
+        await context.bot.edit_message_text(
+            message_id=loading_message.message_id,
+            chat_id=loading_message.chat_id,
+            text=f"упс, что-то пошло не так :\n{err}",
             reply_markup=reply_markup
         )
         logger.error(err)
@@ -165,9 +169,14 @@ async def end(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 def main() -> None:
     """Run the bot."""
     application = Application.builder().token(TELEGRAM_TOKEN).build()
-
+    done_handler = MessageHandler(
+        # filters.Chat(chat_id=TELEGRAM_CHAT_ID)
+        filters.Regex("^Done$"),
+        start
+    )
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
+        # entry_points=[CommandHandler("start", start)],
+        entry_points=[done_handler],
         states={
             START_ROUTES: [
                 CallbackQueryHandler(one, pattern="^" + str(ONE) + "$"),
@@ -179,7 +188,7 @@ def main() -> None:
                 CallbackQueryHandler(end, pattern="^" + str(TWO) + "$"),
             ]
         },
-        fallbacks=[CommandHandler("start", start)],
+        fallbacks=[done_handler],
     )
 
     application.add_handler(conv_handler)

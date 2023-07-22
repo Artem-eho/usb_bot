@@ -12,7 +12,7 @@ def get_files(path="usb_x32"):
 class FilesData:
     def __init__(self):
         self.path = "USB"
-        self.chank_len = 20
+        self.chank_len = 9
 
     def get_chunks(self) -> list:
         """
