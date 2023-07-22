@@ -52,7 +52,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     keyboard = [
         [InlineKeyboardButton("Посмотреть файлы", callback_data=str(ONE))],
         [InlineKeyboardButton("Выход", callback_data=str(TWO))],
-        ]
+    ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
         "Тут инфа по флешке: \n"
@@ -166,9 +166,11 @@ async def end(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 def main() -> None:
     """Run the bot."""
-    application = Application.builder().token(TELEGRAM_TOKEN).connect_timeout(300).build()
+    application = Application.builder().token(
+        TELEGRAM_TOKEN
+    ).connect_timeout(300).build()
     done_handler = MessageHandler(
-        filters.Regex("^Done$") ,
+        filters.Regex("^Done$"),
         start
     )
     conv_handler = ConversationHandler(
