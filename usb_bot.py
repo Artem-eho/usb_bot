@@ -3,6 +3,7 @@
 import os
 import logging
 from time import sleep
+from typing import Optional
 import telegram
 from dotenv import load_dotenv
 from core import FilesData
@@ -10,9 +11,11 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
-    filters,
-    MessageHandler,
+    # filters,
+    # MessageHandler,
+    CommandHandler,
     ContextTypes,
+    CallbackContext,
     ConversationHandler,
 )
 
@@ -45,9 +48,41 @@ START_ROUTES, END_ROUTES = range(2)
 ONE, TWO, THREE, FOUR, FITH, SIX = range(6)
 
 
+class ChatData:
+    """Custom class for start_message."""
+
+    def __init__(self) -> None:
+        self.start_message: telegram.Message = None
+
+
+class CustomContext(CallbackContext):
+    """Custom class for context."""
+
+    def __init__(
+        self,
+        application: Application,
+        chat_id: Optional[int] = None,
+        user_id: Optional[int] = None,
+
+    ):
+        super().__init__(
+            application=application,
+            chat_id=chat_id,
+            user_id=user_id
+        )
+        self._message_id: Optional[int] = None
+
+    def save_start_message(self) -> Optional[int]:
+        self.chat_data.start_message = self._message_id
+
+    def get_start_message(self) -> Optional[int]:
+        return self.chat_data.start_message
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Send message on `/start`."""
     user = update.message.from_user
+    context.save_start_message()
     logger.info("User %s started the conversation.", user.first_name)
     keyboard = [
         [InlineKeyboardButton("Посмотреть файлы", callback_data=str(ONE))],
@@ -55,6 +90,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
+        f"Привет {user.first_name}"
         "Тут инфа по флешке: \n"
         "SN:\n"
         "дата подключения: \n"
@@ -161,21 +197,26 @@ async def end(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await query.edit_message_text(text="👋")
     sleep(1)
     await query.delete_message()
+    await context.bot.delete_message(
+        chat_id=update.effective_chat.id,
+        message_id=context.get_start_message()
+    )
     return ConversationHandler.END
 
 
 def main() -> None:
     """Run the bot."""
+    context_types = ContextTypes(context=CustomContext, chat_data=ChatData)
     application = Application.builder().token(
         TELEGRAM_TOKEN
-    ).connect_timeout(300).build()
-    done_handler = MessageHandler(
-        filters.Regex("^Done$"),
-        start
-    )
+    ).connect_timeout(300).context_types(context_types).build()
+    # done_handler = MessageHandler(
+    #     filters.Regex("^Done$"),
+    #     start
+    # )
+    usb_handler = CommandHandler("usb", start)
     conv_handler = ConversationHandler(
-        # entry_points=[CommandHandler("start", start)],
-        entry_points=[done_handler],
+        entry_points=[usb_handler],
         states={
             START_ROUTES: [
                 CallbackQueryHandler(one, pattern="^" + str(ONE) + "$"),
@@ -187,7 +228,7 @@ def main() -> None:
                 CallbackQueryHandler(end, pattern="^" + str(TWO) + "$"),
             ]
         },
-        fallbacks=[done_handler],
+        fallbacks=[usb_handler],
     )
 
     application.add_handler(conv_handler)
