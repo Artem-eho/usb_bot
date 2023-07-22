@@ -67,7 +67,7 @@ jobs:
             sudo docker container stop usb_bot
             sudo docker pull artemeho/usb_bot:latest
             sudo docker run \
-            -v $(pwd)/USB:$(pwd)/USB \
+            --mount src="$(pwd)"/USB,target=/app/USB,type=bind \
             --detach \
             --rm \
             --env-file .env \
