@@ -23,7 +23,7 @@ if os.path.exists(dotenv_path):
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 MOUNT_PATH = os.getenv('MOUNT_PATH')
-
+FILTERED_USERS = os.getenv('FILTERED_USERS')
 
 # Enable logging
 logging.basicConfig(
@@ -50,11 +50,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.message.from_user
     logger.info("User %s started the conversation.", user.first_name)
     keyboard = [
-        [
-            InlineKeyboardButton("Посмотреть файлы", callback_data=str(ONE)),
-            InlineKeyboardButton("Выход", callback_data=str(TWO)),
+        [InlineKeyboardButton("Посмотреть файлы", callback_data=str(ONE))],
+        [InlineKeyboardButton("Выход", callback_data=str(TWO))],
         ]
-    ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
         "Тут инфа по флешке: \n"
@@ -135,6 +133,7 @@ async def three(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 chat_id=update.effective_chat.id,
                 media=media
             )
+            sleep(1)
         await context.bot.delete_message(
             chat_id=update.effective_chat.id,
             message_id=loading_message.message_id
@@ -167,10 +166,9 @@ async def end(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 def main() -> None:
     """Run the bot."""
-    application = Application.builder().token(TELEGRAM_TOKEN).build()
+    application = Application.builder().token(TELEGRAM_TOKEN).connect_timeout(300).build()
     done_handler = MessageHandler(
-        # filters.Chat(chat_id=TELEGRAM_CHAT_ID)
-        filters.Regex("^Done$"),
+        filters.Regex("^Done$") ,
         start
     )
     conv_handler = ConversationHandler(
