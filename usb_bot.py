@@ -6,7 +6,6 @@ from time import sleep
 import telegram
 from dotenv import load_dotenv
 from core import FilesData
-
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     Application,
@@ -15,7 +14,6 @@ from telegram.ext import (
     ContextTypes,
     ConversationHandler,
 )
-
 
 dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
 if os.path.exists(dotenv_path):
