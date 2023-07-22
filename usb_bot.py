@@ -5,7 +5,6 @@ import logging
 from time import sleep
 import telegram
 from dotenv import load_dotenv
-from telegram import __version__ as TG_VER
 from core import FilesData
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -29,9 +28,9 @@ MOUNT_PATH = os.getenv('MOUNT_PATH')
 
 # Enable logging
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
 )
-# set higher logging level for httpx to avoid all GET and POST requests being logged
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
@@ -67,7 +66,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return START_ROUTES
 
 
-async def start_over(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def start_over(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+) -> int:
     """Prompt same text & keyboard as `start` does but not as new message"""
     query = update.callback_query
     await query.answer()
@@ -78,7 +80,10 @@ async def start_over(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text(text="Сюда пихнуть имя флешки", reply_markup=reply_markup)
+    await query.edit_message_text(
+        text="Сюда пихнуть имя флешки",
+        reply_markup=reply_markup
+    )
     return START_ROUTES
 
 
@@ -140,11 +145,13 @@ async def three(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             chat_id=update.effective_chat.id,
             text="Загрузка завершена, что дальше?", reply_markup=reply_markup
         )
-    except:
+    except Exception as err:
         await loading_message.edited_message(
-            text="упс, что-то пошло не так",
+            text=f"упс, что-то пошло не так {err}",
             reply_markup=reply_markup
         )
+        logger.error(err)
+        return START_ROUTES
     return START_ROUTES
 
 
