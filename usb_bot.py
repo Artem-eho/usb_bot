@@ -82,7 +82,8 @@ class CustomContext(CallbackContext):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Send message on `/start`."""
     user = update.message.from_user
-    context.save_start_message()
+    context.chat_data.start_message = update.message.id
+    print(context.get_start_message())
     logger.info("User %s started the conversation.", user.first_name)
     keyboard = [
         [InlineKeyboardButton("Посмотреть файлы", callback_data=str(ONE))],
@@ -90,7 +91,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
-        f"Привет {user.first_name}"
+        f"Привет {user.first_name}\n"
         "Тут инфа по флешке: \n"
         "SN:\n"
         "дата подключения: \n"
