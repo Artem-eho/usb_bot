@@ -6,7 +6,7 @@ from time import sleep
 from typing import Optional
 import telegram
 from dotenv import load_dotenv
-from core import FilesData
+from core import FilesData, build_table, get_chunks
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     Application,
@@ -36,10 +36,6 @@ logging.basicConfig(
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
-
-
-files = FilesData()
-files.path = MOUNT_PATH
 
 
 # Stages
@@ -80,7 +76,6 @@ class CustomContext(CallbackContext):
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Send message on `/start`."""
     user = update.message.from_user
     context.chat_data.start_message = update.message.id
     print(context.get_start_message())
@@ -134,28 +129,45 @@ async def one(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         #                       callback_data=str(SIX))],
         [InlineKeyboardButton("Выход", callback_data=str(TWO))],
     ]
-    audio_files = files.get_files_name_list()
     reply_markup = InlineKeyboardMarkup(keyboard)
-    file_names = (
-        f"Всего файлов: {len(audio_files)}\n"
-        "\nСписок файлов:\n"
+
+    files = FilesData()
+    files.get_files(path=MOUNT_PATH)
+
+    audio_files = [
+        (f.name, f.h_size) for f in files.file_list
+    ]
+
+    files_table = build_table(audio_files, "name", "size")
+    futter_table = build_table(
+        [("full size :", files.h_size_sum,)], "all files :", files.count
     )
-    for file_name in audio_files:
-        file_names = f"{file_names}\n{file_name}"
-    await query.edit_message_text(
-        text=file_names, reply_markup=reply_markup
-    )
+    message = f'```\n{files_table}\n```\n```\n{futter_table}\n```'
+    print(message)
+    try:
+        await query.edit_message_text(
+            text=message,
+            parse_mode=telegram.constants.ParseMode.MARKDOWN_V2,
+            reply_markup=reply_markup
+        )
+    except Exception as err:
+        await query.edit_message_text(
+            text=f"упс, что-то пошло не так :\n{err}",
+            reply_markup=reply_markup
+        )
     return START_ROUTES
 
 
 async def three(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    files = FilesData()
+    files.get_files(path=MOUNT_PATH)
     query = update.callback_query
     await query.answer()
     keyboard = [
         [InlineKeyboardButton("Еще раз с начала", callback_data=str(ONE))],
         [InlineKeyboardButton("Выход", callback_data=str(TWO))]
     ]
-    audio_files_chunks = files.get_chunks()
+    audio_files_chunks = get_chunks(files.file_list)
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.delete_message()
     loading_message = await context.bot.send_message(
