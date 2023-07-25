@@ -75,10 +75,10 @@ class CustomContext(CallbackContext):
         return self.chat_data.start_message
 
 
+# старт
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.message.from_user
     context.chat_data.start_message = update.message.id
-    print(context.get_start_message())
     logger.info("User %s started the conversation.", user.first_name)
     keyboard = [
         [InlineKeyboardButton("Посмотреть файлы", callback_data=str(ONE))],
@@ -95,27 +95,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return START_ROUTES
 
 
-async def start_over(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-) -> int:
-    """Prompt same text & keyboard as `start` does but not as new message"""
-    query = update.callback_query
-    await query.answer()
-    keyboard = [
-        [
-            InlineKeyboardButton("Посмотреть файлы", callback_data=str(ONE)),
-            InlineKeyboardButton("Выход", callback_data=str(TWO)),
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text(
-        text="Сюда пихнуть имя флешки",
-        reply_markup=reply_markup
-    )
-    return START_ROUTES
-
-
+# тут показываем список и варианты скачивания
 async def one(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
@@ -125,8 +105,8 @@ async def one(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         #     "Скачать только за сегодня", callback_data=str(FOUR))],
         # [InlineKeyboardButton(
         #     "Скачать только за последний час", callback_data=str(FITH))],
-        # [InlineKeyboardButton("Скачать конкретный файл",
-        #                       callback_data=str(SIX))],
+        [InlineKeyboardButton("Скачать конкретный файл",
+                              callback_data=str(SIX))],
         [InlineKeyboardButton("Выход", callback_data=str(TWO))],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -143,7 +123,6 @@ async def one(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         [("full size :", files.h_size_sum,)], "all files :", files.count
     )
     message = f'```\n{files_table}\n```\n```\n{futter_table}\n```'
-    print(message)
     try:
         await query.edit_message_text(
             text=message,
@@ -158,11 +137,90 @@ async def one(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return START_ROUTES
 
 
+# тут кнопки скачать отдельный файл и варианты возврата
+async def six(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    files = FilesData()
+    files.get_files(path=MOUNT_PATH)
+    buttons_list = [
+        [InlineKeyboardButton(
+            text=" ".join((f.name, f.h_size)), callback_data=f.file
+        )] for f in files.file_list
+    ]
+    query = update.callback_query
+    await query.answer()
+    keyboard = [
+        [InlineKeyboardButton("Назад", callback_data=str(ONE))],
+        [InlineKeyboardButton("Выход", callback_data=str(TWO))]
+    ]
+    reply_markup = InlineKeyboardMarkup(buttons_list + keyboard)
+
+    try:
+        await query.edit_message_text(
+            text="Какой файл?",
+            reply_markup=reply_markup
+        )
+    except Exception as err:
+        await query.edit_message_text(
+            text=f"упс, что-то пошло не так :\n{err}",
+            reply_markup=reply_markup
+        )
+        return START_ROUTES
+    return START_ROUTES
+
+
+# тут скачать отдельный файл и варианты возврат
+async def seven(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    files = FilesData()
+    files.get_files(path=MOUNT_PATH)
+    query = update.callback_query
+    await query.answer()
+    keyboard = [
+        [InlineKeyboardButton("Назад", callback_data=str(SIX))],
+        [InlineKeyboardButton("Выход", callback_data=str(TWO))]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    file = update.callback_query.data
+    # print(file, file.file, sep="\n")
+
+    await query.delete_message()
+    loading_message = await context.bot.send_message(
+        text="загружаю...",
+        chat_id=update.effective_chat.id
+    )
+    try:
+        media = [telegram.InputMediaAudio(
+            open(file, "rb"))]
+        await context.bot.send_media_group(
+            chat_id=update.effective_chat.id,
+            media=media
+        )
+        await context.bot.delete_message(
+            chat_id=update.effective_chat.id,
+            message_id=loading_message.message_id
+        )
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="Загрузка завершена, что дальше?", reply_markup=reply_markup
+        )
+    except Exception as err:
+        await context.bot.edit_message_text(
+            message_id=loading_message.message_id,
+            chat_id=loading_message.chat_id,
+            text=f"упс, что-то пошло не так :\n{err}",
+            reply_markup=reply_markup
+        )
+        logger.error(err)
+        return START_ROUTES
+    return START_ROUTES
+
+
+# тут скачать все и варианты возврата
 async def three(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     files = FilesData()
     files.get_files(path=MOUNT_PATH)
     query = update.callback_query
     await query.answer()
+
     keyboard = [
         [InlineKeyboardButton("Еще раз с начала", callback_data=str(ONE))],
         [InlineKeyboardButton("Выход", callback_data=str(TWO))]
@@ -204,6 +262,7 @@ async def three(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return START_ROUTES
 
 
+# конец
 async def end(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
@@ -237,7 +296,8 @@ def main() -> None:
                 CallbackQueryHandler(three, pattern="^" + str(THREE) + "$"),
                 # CallbackQueryHandler(four, pattern="^" + str(FOUR) + "$"),
                 # CallbackQueryHandler(fith, pattern="^" + str(FITH) + "$"),
-                # CallbackQueryHandler(six, pattern="^" + str(SIX) + "$"),
+                CallbackQueryHandler(six, pattern="^" + str(SIX) + "$"),
+                CallbackQueryHandler(seven, pattern=".*.(mp3)$"),
                 CallbackQueryHandler(end, pattern="^" + str(TWO) + "$"),
             ]
         },
