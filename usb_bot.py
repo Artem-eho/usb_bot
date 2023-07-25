@@ -143,7 +143,8 @@ async def six(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     files.get_files(path=MOUNT_PATH)
     buttons_list = [
         [InlineKeyboardButton(
-            text=" ".join((f.name, f.h_size)), callback_data=f.file
+            text=" ".join((f.name, f.h_size)),
+            callback_data="file_to_download:" + f.file
         )] for f in files.file_list
     ]
     query = update.callback_query
@@ -179,8 +180,7 @@ async def seven(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         [InlineKeyboardButton("Выход", callback_data=str(TWO))]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    file = update.callback_query.data
-    # print(file, file.file, sep="\n")
+    file = update.callback_query.data.split(":", maxsplit=1)[-1]
 
     await query.delete_message()
     loading_message = await context.bot.send_message(
@@ -297,7 +297,7 @@ def main() -> None:
                 # CallbackQueryHandler(four, pattern="^" + str(FOUR) + "$"),
                 # CallbackQueryHandler(fith, pattern="^" + str(FITH) + "$"),
                 CallbackQueryHandler(six, pattern="^" + str(SIX) + "$"),
-                CallbackQueryHandler(seven, pattern=".*.(mp3)$"),
+                CallbackQueryHandler(seven, pattern="^file_to_download:.*"),
                 CallbackQueryHandler(end, pattern="^" + str(TWO) + "$"),
             ]
         },
