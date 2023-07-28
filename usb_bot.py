@@ -281,7 +281,7 @@ def main() -> None:
     context_types = ContextTypes(context=CustomContext, chat_data=ChatData)
     application = Application.builder().token(
         TELEGRAM_TOKEN
-    ).connect_timeout(300).context_types(context_types).build()
+    ).context_types(context_types).build()
     # done_handler = MessageHandler(
     #     filters.Regex("^Done$"),
     #     start
