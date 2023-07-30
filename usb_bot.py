@@ -240,7 +240,7 @@ async def three(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 chat_id=update.effective_chat.id,
                 media=media
             )
-            sleep(1)
+            sleep(2)
         await context.bot.delete_message(
             chat_id=update.effective_chat.id,
             message_id=loading_message.message_id
