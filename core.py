@@ -49,6 +49,7 @@ class FilesData:
     def get_files(self, path: str):
         self.path = path
         for address, dirs, files in os.walk(self.path):
+            files.sort()
             for name in files:
                 file = File(os.path.join(address, name))
                 self.file_list.append(file)
