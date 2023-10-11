@@ -207,7 +207,8 @@ async def seven(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         )
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text="Загрузка завершена, что дальше?\nпоказаны последние 15 файлов",
+            text="Загрузка завершена, что дальше?\n"
+            "показаны последние 15 файлов",
             reply_markup=reply_markup
         )
     except Exception as err:
