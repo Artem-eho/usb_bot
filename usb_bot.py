@@ -158,7 +158,7 @@ async def six(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     try:
         await query.edit_message_text(
-            text="Какой файл?",
+            text="Какой файл?\nпоказаны последние 15 файлов",
             reply_markup=reply_markup
         )
     except Exception as err:
@@ -207,7 +207,7 @@ async def seven(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         )
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text="Загрузка завершена, что дальше?", reply_markup=reply_markup
+            text="Загрузка завершена, что дальше?\nпоказаны последние 15 файлов", reply_markup=reply_markup
         )
     except Exception as err:
         await context.bot.edit_message_text(
