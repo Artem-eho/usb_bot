@@ -146,7 +146,7 @@ async def six(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             text=" ".join((f.name, f.h_size)),
             callback_data="file_to_download:" + f.file
         )] for f in files.file_list
-    ]
+    ][-15:]
     print(context.update)
     query = update.callback_query
     await query.answer()
@@ -179,14 +179,14 @@ async def seven(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             text=" ".join((f.name, f.h_size)),
             callback_data="file_to_download:" + f.file
         )] for f in files.file_list
-    ]
+    ][-15:]
     query = update.callback_query
     await query.answer()
     keyboard = [
         [InlineKeyboardButton("Назад", callback_data=str(SIX))],
         [InlineKeyboardButton("Выход", callback_data=str(TWO))]
     ]
-    reply_markup = InlineKeyboardMarkup(buttons_list[:15] + keyboard)
+    reply_markup = InlineKeyboardMarkup(buttons_list + keyboard)
     file = update.callback_query.data.split(":", maxsplit=1)[-1]
 
     await query.delete_message()
