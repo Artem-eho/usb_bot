@@ -3,11 +3,12 @@ import tempfile
 import unittest
 from core import FilesData, archive_file, split_file, archive_files
 from usb_bot import is_user_allowed, make_greeting, is_safe_path, is_file_accessible, log_download, check_env_vars, clean_old_archives, ARCHIVE_SEMAPHORE
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 import datetime
 import logging
 import time
 import asyncio
+from telegram import InlineKeyboardButton
 
 
 class TestFilesData(unittest.TestCase):
@@ -197,6 +198,54 @@ class TestSafePathEdgeCases(unittest.TestCase):
             os.symlink(secret, link)
             # Попытка пройти по симлинку наружу
             self.assertFalse(is_safe_path(real, link))
+
+
+class TestDownloadLastSundayLogic(unittest.TestCase):
+    def test_last_sunday_logic(self):
+        # Проверяем, что вычисляется именно последнее прошедшее воскресенье
+        import datetime
+        today = datetime.date(2024, 4, 29)  # Понедельник
+        last_sunday = today - datetime.timedelta(days=(today.weekday() + 1) % 7 or 7)
+        self.assertEqual(last_sunday.weekday(), 6)  # 6 - воскресенье
+        self.assertLess(last_sunday, today)
+        # Проверяем для воскресенья (должно быть предыдущее воскресенье)
+        today = datetime.date(2024, 4, 28)  # Воскресенье
+        last_sunday = today - datetime.timedelta(days=(today.weekday() + 1) % 7 or 7)
+        self.assertEqual(last_sunday, datetime.date(2024, 4, 21))
+
+
+class TestFileButtonCallback(unittest.TestCase):
+    def test_callback_data_no_space(self):
+        from telegram import InlineKeyboardButton
+        class F:
+            def __init__(self, name, size, h_size):
+                self.name = name
+                self.size = size
+                self.h_size = h_size
+                self.file = name
+        f = F('test.mp3', 10 * 1024 * 1024, '10 МБ')
+        btn = InlineKeyboardButton(
+            f"{f.name} ({f.h_size})", callback_data=f"file_to_download:{f.file}")
+        self.assertTrue(btn.callback_data.startswith('file_to_download:'))
+        self.assertNotIn('file_to_download: ', btn.callback_data)
+
+
+class TestErrorHandlerUX(unittest.IsolatedAsyncioTestCase):
+    async def test_show_alert_on_no_file(self):
+        from usb_bot import seven
+        update = MagicMock()
+        context = MagicMock()
+        context.user_data = {'six_files_page': 0}
+        update.effective_user = MagicMock(id=1)
+        update.callback_query = AsyncMock()
+        update.callback_query.data = 'file_to_download:/not/exist.mp3'
+        # is_safe_path и is_file_accessible всегда False
+        with patch('usb_bot.is_safe_path', return_value=False), \
+             patch('usb_bot.is_file_accessible', return_value=False):
+            await seven(update, context)
+        update.callback_query.answer.assert_any_await(
+            'Файл не найден или недоступен.', show_alert=True
+        )
 
 
 if __name__ == '__main__':

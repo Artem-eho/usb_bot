@@ -294,17 +294,24 @@ async def download_last_sunday(update: Update, context: ContextTypes.DEFAULT_TYP
     user = update.effective_user
     if not is_user_allowed(user.id):
         await update.callback_query.answer(
-            "⛔️ Доступ запрещён.", show_alert=False
+            "⛔️ Доступ запрещён.", show_alert=True
         )
-        return ConversationHandler.END
+        return START_ROUTES
     files = FilesData()
     files.get_files(path=MOUNT_PATH)
     today = datetime.date.today()
-    last_sunday = today - datetime.timedelta(days=(today.weekday() + 1) % 7)
+    # Находим последнее прошедшее воскресенье (не сегодня)
+    last_sunday = today - datetime.timedelta(days=(today.weekday() + 1) % 7 or 7)
     sunday_files = [
         f for f in files.file_list
         if datetime.date.fromtimestamp(f.ctime) == last_sunday
     ]
+    if not sunday_files:
+        await update.callback_query.answer(
+            "Нет файлов за последнее воскресенье.", show_alert=True
+        )
+        # Оставляем меню открытым
+        return await one(update, context)
     return await send_files_group(update, context, sunday_files, "за последнее воскресенье")
 
 
@@ -314,8 +321,11 @@ async def send_files_group(update, context, file_objs, label):
         query = update.callback_query
         await query.answer()
         if not file_objs:
-            await query.edit_message_text(f"Нет файлов {label}.")
-            return START_ROUTES
+            await update.callback_query.answer(
+                f"Нет файлов {label}.", show_alert=True
+            )
+            # Оставляем меню открытым
+            return await one(update, context)
         loading_message = await context.bot.send_message(
             text=f"Загружаю файлы {label}...",
             chat_id=update.effective_chat.id
@@ -403,13 +413,13 @@ async def six(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
     if not is_user_allowed(user.id):
         await update.callback_query.answer(
-            "⛔️ Доступ запрещён.", show_alert=False
+            "⛔️ Доступ запрещён.", show_alert=True
         )
-        return ConversationHandler.END
+        return START_ROUTES
     query = update.callback_query
     await query.answer()
     # Получаем текущую страницу для выбора файла
-    page = context.user_data.get('six_files_page', 0)
+    page = int(context.user_data.get('six_files_page', 0))
     files = FilesData()
     files.get_files(path=MOUNT_PATH)
     total_files = len(files.file_list)
@@ -421,7 +431,7 @@ async def six(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         [
             InlineKeyboardButton(
                 f"{f.name} ({f.h_size}){' 📦' if f.size > 49 * 1024 * 1024 else ''}",
-                callback_data=f"file_to_download: {f.file}"
+                callback_data=f"file_to_download:{f.file}"
             )
         ]
         for f in page_files
@@ -464,17 +474,17 @@ async def seven(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
     if not is_user_allowed(user.id):
         await update.callback_query.answer(
-            "⛔️ Доступ запрещён.", show_alert=False
-        )
-        return ConversationHandler.END
-    file = update.callback_query.data.split(":", maxsplit=1)[-1]
-    # Проверка безопасности пути и существования файла
-    if not is_safe_path(MOUNT_PATH, file) or not is_file_accessible(file):
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="Файл не найден или недоступен."
+            "⛔️ Доступ запрещён.", show_alert=True
         )
         return START_ROUTES
+    file = update.callback_query.data.split(":", maxsplit=1)[-1].strip()
+    # Проверка безопасности пути и существования файла
+    if not is_safe_path(MOUNT_PATH, file) or not is_file_accessible(file):
+        await update.callback_query.answer(
+            "Файл не найден или недоступен.", show_alert=True
+        )
+        # Оставляем меню открытым
+        return await six(update, context)
     await update.callback_query.answer()
     await update.callback_query.edit_message_text(text="загружаю...")
     try:
