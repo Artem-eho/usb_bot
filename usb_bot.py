@@ -51,8 +51,9 @@ START_ROUTES, END_ROUTES = range(2)
 # Callback data
 ONE, TWO, THREE, FOUR, FITH, SIX = range(6)
 
-MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 МБ
+MAX_FILE_SIZE = 48 * 1024 * 1024  # 48 МБ
 PAGE_SIZE = 10
+SIX_FILES_PAGE_SIZE = 15
 
 # Глобальная переменная для аптайма
 BOT_START_TIME = datetime.datetime.now()
@@ -121,17 +122,17 @@ def error_handler(func):
                 f"Ошибка в {func.__name__} | {user_info} | {err}\n"
                 f"{traceback.format_exc()}"
             )
-            # Сообщение пользователю
+            # Сообщение пользователю только через всплывающую подсказку
             try:
-                if hasattr(update, 'message') and update.message:
-                    await update.message.reply_text(
-                        "Произошла ошибка. Попробуйте позже "
-                        "или обратитесь к администратору."
-                    )
-                elif hasattr(update, 'callback_query') and update.callback_query:
+                if hasattr(update, 'callback_query') and update.callback_query:
                     await update.callback_query.answer(
                         "Произошла ошибка. Попробуйте позже.",
-                        show_alert=True
+                        show_alert=False
+                    )
+                elif hasattr(update, 'message') and update.message:
+                    await update.message.reply_text(
+                        "Произошла ошибка. Попробуйте позже.",
+                        disable_notification=True
                     )
             except Exception:
                 pass
@@ -152,7 +153,7 @@ def make_greeting(user_first_name, files, mount_path, bot_start_time):
     free_gb = disk.free / (1024 ** 3)
     if files.file_list:
         last_file = max(files.file_list, key=lambda f: f.ctime)
-        last_file_info = '{} ({})'.format(
+        last_file_info = '{}\n({})'.format(
             last_file.name,
             datetime.datetime.fromtimestamp(
                 last_file.ctime).strftime('%d.%m.%Y %H:%M:%S')
@@ -162,20 +163,12 @@ def make_greeting(user_first_name, files, mount_path, bot_start_time):
     uptime = datetime.datetime.now() - bot_start_time
     uptime_str = str(uptime).split('.')[0]
     return (
-        'Привет, {}!\n'
-        'Сегодня: {}\n'
-        'Файлов в папке: {} ({})\n'
-        'Свободно на диске: {:.2f} ГБ\n'
-        'Последний добавленный файл: {}\n'
-        'Аптайм бота: {}'
-    ).format(
-        user_first_name,
-        today,
-        len(files.file_list),
-        ext_info,
-        free_gb,
-        last_file_info,
-        uptime_str
+        f"👋 Привет, {user_first_name}!\n\n"
+        f"📅 Сегодня: {today}\n"
+        f"📁 Файлов в папке: {len(files.file_list)} ({ext_info})\n"
+        f"💾 Свободно на диске: {free_gb: .2f} ГБ\n"
+        f"🕑 Аптайм бота: {uptime_str}\n\n"
+        f"🆕 Последний файл: \n{last_file_info}"
     )
 
 
@@ -210,7 +203,7 @@ async def one(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
     if not is_user_allowed(user.id):
         await update.callback_query.answer(
-            "⛔️ Доступ запрещён.", show_alert=True
+            "⛔️ Доступ запрещён.", show_alert=False
         )
         return ConversationHandler.END
     query = update.callback_query
@@ -233,10 +226,14 @@ async def one(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     futter_table_html = html.escape(str(futter_table))
     message = f'<pre>{files_table_html}</pre><pre>{futter_table_html}</pre>'
     keyboard = []
+    # Формируем кнопки пагинации в один ряд
+    pagination_row = []
     if page > 0:
-        keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data="prev_page")])
+        pagination_row.append(InlineKeyboardButton("⬅️ Назад", callback_data="prev_page"))
     if end < total_files:
-        keyboard.append([InlineKeyboardButton("Вперёд ➡️", callback_data="next_page")])
+        pagination_row.append(InlineKeyboardButton("Вперёд ➡️", callback_data="next_page"))
+    if pagination_row:
+        keyboard.append(pagination_row)
     keyboard += [
         [InlineKeyboardButton("Скачать всё", callback_data=str(THREE))],
         [InlineKeyboardButton("Скачать за сегодня", callback_data="download_today")],
@@ -278,7 +275,7 @@ async def download_today(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     user = update.effective_user
     if not is_user_allowed(user.id):
         await update.callback_query.answer(
-            "⛔️ Доступ запрещён.", show_alert=True
+            "⛔️ Доступ запрещён.", show_alert=False
         )
         return ConversationHandler.END
     files = FilesData()
@@ -297,7 +294,7 @@ async def download_last_sunday(update: Update, context: ContextTypes.DEFAULT_TYP
     user = update.effective_user
     if not is_user_allowed(user.id):
         await update.callback_query.answer(
-            "⛔️ Доступ запрещён.", show_alert=True
+            "⛔️ Доступ запрещён.", show_alert=False
         )
         return ConversationHandler.END
     files = FilesData()
@@ -372,7 +369,7 @@ async def three(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
     if not is_user_allowed(user.id):
         await update.callback_query.answer(
-            "⛔️ Доступ запрещён.", show_alert=True
+            "⛔️ Доступ запрещён.", show_alert=False
         )
         return ConversationHandler.END
     files = FilesData()
@@ -386,7 +383,7 @@ async def end(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
     if not is_user_allowed(user.id):
         await update.callback_query.answer(
-            "⛔️ Доступ запрещён.", show_alert=True
+            "⛔️ Доступ запрещён.", show_alert=False
         )
         return ConversationHandler.END
     query = update.callback_query
@@ -402,30 +399,75 @@ async def end(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 
 @error_handler
+async def six(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user = update.effective_user
+    if not is_user_allowed(user.id):
+        await update.callback_query.answer(
+            "⛔️ Доступ запрещён.", show_alert=False
+        )
+        return ConversationHandler.END
+    query = update.callback_query
+    await query.answer()
+    # Получаем текущую страницу для выбора файла
+    page = context.user_data.get('six_files_page', 0)
+    files = FilesData()
+    files.get_files(path=MOUNT_PATH)
+    total_files = len(files.file_list)
+    start = page * SIX_FILES_PAGE_SIZE
+    end = start + SIX_FILES_PAGE_SIZE
+    page_files = files.file_list[start:end]
+    # Формируем кнопки файлов с иконкой архиватора для больших файлов
+    file_buttons = [
+        [
+            InlineKeyboardButton(
+                f"{f.name} ({f.h_size}){' 📦' if f.size > 49 * 1024 * 1024 else ''}",
+                callback_data=f"file_to_download: {f.file}"
+            )
+        ]
+        for f in page_files
+    ]
+    # Кнопки пагинации файлов в один ряд
+    pagination_row = []
+    if page > 0:
+        pagination_row.append(InlineKeyboardButton("⬅️ Назад", callback_data="six_prev_page"))
+    if end < total_files:
+        pagination_row.append(InlineKeyboardButton("Вперёд ➡️", callback_data="six_next_page"))
+    if pagination_row:
+        file_buttons.append(pagination_row)
+    # Кнопки возврата
+    file_buttons += [
+        [InlineKeyboardButton("Выход", callback_data=str(TWO))],
+        [InlineKeyboardButton("Назад", callback_data=str(ONE))],
+    ]
+    reply_markup = InlineKeyboardMarkup(file_buttons)
+    await query.edit_message_text(
+        text="Выберите файл для скачивания:",
+        reply_markup=reply_markup
+    )
+    return START_ROUTES
+
+
+@error_handler
+async def six_next_page(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data['six_files_page'] = context.user_data.get('six_files_page', 0) + 1
+    return await six(update, context)
+
+
+@error_handler
+async def six_prev_page(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data['six_files_page'] = max(context.user_data.get('six_files_page', 0) - 1, 0)
+    return await six(update, context)
+
+
+@error_handler
 async def seven(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
     if not is_user_allowed(user.id):
         await update.callback_query.answer(
-            "⛔️ Доступ запрещён.", show_alert=True
+            "⛔️ Доступ запрещён.", show_alert=False
         )
         return ConversationHandler.END
-    files = FilesData()
-    files.get_files(path=MOUNT_PATH)
-    buttons_list = [
-        [InlineKeyboardButton(
-            text=" ".join((f.name, f.h_size)),
-            callback_data="file_to_download:" + f.file
-        )] for f in files.file_list
-    ][-15:]
-    query = update.callback_query
-    await query.answer()
-    keyboard = [
-        [InlineKeyboardButton("Назад", callback_data=str(SIX))],
-        [InlineKeyboardButton("Выход", callback_data=str(TWO))]
-    ]
-    reply_markup = InlineKeyboardMarkup(buttons_list + keyboard)
     file = update.callback_query.data.split(":", maxsplit=1)[-1]
-
     # Проверка безопасности пути и существования файла
     if not is_safe_path(MOUNT_PATH, file) or not is_file_accessible(file):
         await context.bot.send_message(
@@ -433,31 +475,24 @@ async def seven(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             text="Файл не найден или недоступен."
         )
         return START_ROUTES
-
-    await query.delete_message()
-    loading_message = await context.bot.send_message(
-        text="загружаю...",
-        chat_id=update.effective_chat.id
-    )
+    await update.callback_query.answer()
+    await update.callback_query.edit_message_text(text="загружаю...")
     try:
-        await send_file_with_logging(context, update.effective_chat.id, user, file)
-        await context.bot.delete_message(
+        await context.bot.send_document(
             chat_id=update.effective_chat.id,
-            message_id=loading_message.message_id
+            document=open(file, "rb"),
+            filename=os.path.basename(file)
         )
+        log_download(user, file)
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text="Загрузка завершена! Если файл был разбит на части, скачайте все части."
+            text="Загрузка завершена!"
         )
     except Exception as err:
-        await context.bot.edit_message_text(
-            message_id=loading_message.message_id,
-            chat_id=loading_message.chat_id,
-            text=f"упс, что-то пошло не так: \n{err}",
-            reply_markup=reply_markup
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"Ошибка при отправке файла {os.path.basename(file)}: {err}"
         )
-        logger.error(err)
-        return START_ROUTES
     return START_ROUTES
 
 
@@ -537,12 +572,15 @@ def main() -> None:
             START_ROUTES: [
                 CallbackQueryHandler(one, pattern="^" + str(ONE) + "$"),
                 CallbackQueryHandler(three, pattern="^" + str(THREE) + "$"),
-                CallbackQueryHandler(seven, pattern="^file_to_download:.*"),
+                CallbackQueryHandler(six, pattern="^" + str(SIX) + "$"),
                 CallbackQueryHandler(end, pattern="^" + str(TWO) + "$"),
                 CallbackQueryHandler(next_page, pattern="^next_page$"),
                 CallbackQueryHandler(prev_page, pattern="^prev_page$"),
                 CallbackQueryHandler(download_today, pattern="^download_today$"),
                 CallbackQueryHandler(download_last_sunday, pattern="^download_last_sunday$"),
+                CallbackQueryHandler(six_next_page, pattern="^six_next_page$"),
+                CallbackQueryHandler(six_prev_page, pattern="^six_prev_page$"),
+                CallbackQueryHandler(seven, pattern="^file_to_download:.*$"),
             ]
         },
         fallbacks=[usb_handler],

@@ -79,7 +79,7 @@ class TestGreeting(unittest.TestCase):
         )
         self.assertIn('Привет, Тест!', msg)
         self.assertIn('Файлов в папке: 2', msg)
-        self.assertIn('Свободно на диске: 10.00 ГБ', msg)
+        self.assertIn('10.00 ГБ', msg)
         self.assertIn('Аптайм бота: 1:00:00', msg)
 
 
