@@ -6,7 +6,7 @@ from time import sleep
 from typing import Optional
 import telegram
 from dotenv import load_dotenv
-from core import FilesData, build_table, get_chunks
+from core import FilesData, build_table, archive_files, split_file
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     Application,
@@ -18,6 +18,14 @@ from telegram.ext import (
     CallbackContext,
     ConversationHandler,
 )
+import functools
+import traceback
+import datetime
+import html
+import tempfile
+import glob
+import time
+import asyncio
 
 dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
 if os.path.exists(dotenv_path):
@@ -42,6 +50,13 @@ logger = logging.getLogger(__name__)
 START_ROUTES, END_ROUTES = range(2)
 # Callback data
 ONE, TWO, THREE, FOUR, FITH, SIX = range(6)
+
+MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 МБ
+PAGE_SIZE = 10
+
+# Глобальная переменная для аптайма
+BOT_START_TIME = datetime.datetime.now()
+ARCHIVE_SEMAPHORE = asyncio.Semaphore(20)
 
 
 class ChatData:
@@ -75,58 +90,166 @@ class CustomContext(CallbackContext):
         return self.chat_data.start_message
 
 
+def is_user_allowed(user_id: int) -> bool:
+    """
+    Проверяет, разрешён ли пользователь по user_id.
+    FILTERED_USERS может быть списком id через запятую или пустым (разрешить всем).
+    """
+    filtered = os.environ.get('FILTERED_USERS', '')
+    if not filtered:
+        return True
+    allowed = [u.strip() for u in filtered.split(",") if u.strip()]
+    return str(user_id) in allowed
+
+
+def error_handler(func):
+    @functools.wraps(func)
+    async def wrapper(update, context, *args, **kwargs):
+        try:
+            return await func(update, context, *args, **kwargs)
+        except Exception as err:
+            user = None
+            if hasattr(update, 'effective_user') and update.effective_user:
+                user = update.effective_user
+            elif hasattr(update, 'message') and update.message:
+                user = update.message.from_user
+            user_info = (
+                f"user_id={getattr(user, 'id', '?')}, "
+                f"name={getattr(user, 'first_name', '?')}"
+            )
+            logger.error(
+                f"Ошибка в {func.__name__} | {user_info} | {err}\n"
+                f"{traceback.format_exc()}"
+            )
+            # Сообщение пользователю
+            try:
+                if hasattr(update, 'message') and update.message:
+                    await update.message.reply_text(
+                        "Произошла ошибка. Попробуйте позже "
+                        "или обратитесь к администратору."
+                    )
+                elif hasattr(update, 'callback_query') and update.callback_query:
+                    await update.callback_query.answer(
+                        "Произошла ошибка. Попробуйте позже.",
+                        show_alert=True
+                    )
+            except Exception:
+                pass
+            return ConversationHandler.END
+    return wrapper
+
+
+def make_greeting(user_first_name, files, mount_path, bot_start_time):
+    import psutil
+    import datetime
+    from collections import Counter
+    today = datetime.date.today().strftime('%d.%m.%Y')
+    ext_counter = Counter(os.path.splitext(
+        f.name)[1].lower() for f in files.file_list)
+    ext_info = ', '.join(
+        ('{}: {}'.format(k or '[без расширения]', v) for k, v in ext_counter.items()))
+    disk = psutil.disk_usage(mount_path)
+    free_gb = disk.free / (1024 ** 3)
+    if files.file_list:
+        last_file = max(files.file_list, key=lambda f: f.ctime)
+        last_file_info = '{} ({})'.format(
+            last_file.name,
+            datetime.datetime.fromtimestamp(
+                last_file.ctime).strftime('%d.%m.%Y %H:%M:%S')
+        )
+    else:
+        last_file_info = 'Нет файлов'
+    uptime = datetime.datetime.now() - bot_start_time
+    uptime_str = str(uptime).split('.')[0]
+    message = (
+        'Привет, {}!\n'
+        'Сегодня: {}\n'
+        'Файлов в папке: {} ({})\n'
+        'Свободно на диске: {:.2f} ГБ\n'
+        'Последний добавленный файл: {}\n'
+        'Аптайм бота: {}'
+    ).format(
+        user_first_name,
+        today,
+        len(files.file_list),
+        ext_info,
+        free_gb,
+        last_file_info,
+        uptime_str
+    )
+    return message
+
+
 # старт
+@error_handler
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.message.from_user
+    if not is_user_allowed(user.id):
+        await update.message.reply_text(
+            "⛔️ Доступ запрещён."
+        )
+        return ConversationHandler.END
     context.chat_data.start_message = update.message.id
     logger.info("User %s started the conversation.", user.first_name)
+    files = FilesData()
+    files.get_files(path=MOUNT_PATH)
+    message = make_greeting(user.first_name, files, MOUNT_PATH, BOT_START_TIME)
     keyboard = [
         [InlineKeyboardButton("Посмотреть файлы", callback_data=str(ONE))],
         [InlineKeyboardButton("Выход", callback_data=str(TWO))],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
-        f"Привет {user.first_name}\n"
-        "Тут инфа по флешке: \n"
-        "SN:\n"
-        "дата подключения: \n"
-        "Занятое место:",
+        message,
         reply_markup=reply_markup)
     return START_ROUTES
 
 
-# тут показываем список и варианты скачивания
+# тут показываем список и варианты скачивания с пагинацией
+@error_handler
 async def one(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user = update.effective_user
+    if not is_user_allowed(user.id):
+        await update.callback_query.answer(
+            "⛔️ Доступ запрещён.", show_alert=True
+        )
+        return ConversationHandler.END
     query = update.callback_query
     await query.answer()
-    keyboard = [
-        [InlineKeyboardButton("Скачать всё", callback_data=str(THREE))],
-        # [InlineKeyboardButton(
-        #     "Скачать только за сегодня", callback_data=str(FOUR))],
-        # [InlineKeyboardButton(
-        #     "Скачать только за последний час", callback_data=str(FITH))],
-        [InlineKeyboardButton("Скачать конкретный файл",
-                              callback_data=str(SIX))],
-        [InlineKeyboardButton("Выход", callback_data=str(TWO))],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
+    page = context.user_data.get('page', 0)
     files = FilesData()
     files.get_files(path=MOUNT_PATH)
-
+    total_files = len(files.file_list)
+    start = page * PAGE_SIZE
+    end = start + PAGE_SIZE
+    page_files = files.file_list[start:end]
     audio_files = [
-        (f.name, f.h_size) for f in files.file_list
+        (f.name, f.h_size) for f in page_files
     ]
-
     files_table = build_table(audio_files, "name", "size")
     futter_table = build_table(
         [("full size :", files.h_size_sum,)], "all files :", files.count
     )
-    message = f'```\n{files_table}\n```\n```\n{futter_table}\n```'
+    files_table_html = html.escape(str(files_table))
+    futter_table_html = html.escape(str(futter_table))
+    message = f'<pre>{files_table_html}</pre><pre>{futter_table_html}</pre>'
+    keyboard = []
+    if page > 0:
+        keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data="prev_page")])
+    if end < total_files:
+        keyboard.append([InlineKeyboardButton("Вперёд ➡️", callback_data="next_page")])
+    keyboard += [
+        [InlineKeyboardButton("Скачать всё", callback_data=str(THREE))],
+        [InlineKeyboardButton("Скачать за сегодня", callback_data="download_today")],
+        [InlineKeyboardButton("Скачать за последнее воскресенье", callback_data="download_last_sunday")],
+        [InlineKeyboardButton("Скачать конкретный файл", callback_data=str(SIX))],
+        [InlineKeyboardButton("Выход", callback_data=str(TWO))],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
     try:
         await query.edit_message_text(
             text=message,
-            parse_mode=telegram.constants.ParseMode.MARKDOWN_V2,
+            parse_mode=telegram.constants.ParseMode.HTML,
             reply_markup=reply_markup
         )
     except Exception as err:
@@ -137,41 +260,156 @@ async def one(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return START_ROUTES
 
 
-# тут кнопки скачать отдельный файл и варианты возврата
-async def six(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+# обработчики пагинации
+@error_handler
+async def next_page(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data['page'] = context.user_data.get('page', 0) + 1
+    return await one(update, context)
+
+
+@error_handler
+async def prev_page(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data['page'] = max(context.user_data.get('page', 0) - 1, 0)
+    return await one(update, context)
+
+
+# обработчик скачивания файлов за сегодня
+@error_handler
+async def download_today(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user = update.effective_user
+    if not is_user_allowed(user.id):
+        await update.callback_query.answer(
+            "⛔️ Доступ запрещён.", show_alert=True
+        )
+        return ConversationHandler.END
     files = FilesData()
     files.get_files(path=MOUNT_PATH)
-    buttons_list = [
-        [InlineKeyboardButton(
-            text=" ".join((f.name, f.h_size)),
-            callback_data="file_to_download:" + f.file
-        )] for f in files.file_list
-    ][-15:]
-    print(context.update)
+    today = datetime.date.today()
+    today_files = [
+        f for f in files.file_list
+        if datetime.date.fromtimestamp(f.ctime) == today
+    ]
+    return await send_files_group(update, context, today_files, "за сегодня")
+
+
+# обработчик скачивания файлов за последнее воскресенье
+@error_handler
+async def download_last_sunday(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user = update.effective_user
+    if not is_user_allowed(user.id):
+        await update.callback_query.answer(
+            "⛔️ Доступ запрещён.", show_alert=True
+        )
+        return ConversationHandler.END
+    files = FilesData()
+    files.get_files(path=MOUNT_PATH)
+    today = datetime.date.today()
+    last_sunday = today - datetime.timedelta(days=(today.weekday() + 1) % 7)
+    sunday_files = [
+        f for f in files.file_list
+        if datetime.date.fromtimestamp(f.ctime) == last_sunday
+    ]
+    return await send_files_group(update, context, sunday_files, "за последнее воскресенье")
+
+
+# универсальная функция отправки группы файлов (до 10 за раз)
+async def send_files_group(update, context, file_objs, label):
+    async with ARCHIVE_SEMAPHORE:
+        query = update.callback_query
+        await query.answer()
+        if not file_objs:
+            await query.edit_message_text(f"Нет файлов {label}.")
+            return START_ROUTES
+        loading_message = await context.bot.send_message(
+            text=f"Загружаю файлы {label}...",
+            chat_id=update.effective_chat.id
+        )
+        try:
+            # Архивируем файлы
+            with tempfile.TemporaryDirectory() as tmpdir:
+                archive_path = os.path.join(tmpdir, f"{label.replace(' ', '_')}.zip")
+                archive_files([f.file for f in file_objs], archive_path)
+                archive_size = os.path.getsize(archive_path)
+                if archive_size <= MAX_FILE_SIZE:
+                    send_files = [archive_path]
+                else:
+                    parts = split_file(archive_path, MAX_FILE_SIZE)
+                    send_files = parts
+                for f in send_files:
+                    try:
+                        await context.bot.send_document(
+                            chat_id=update.effective_chat.id,
+                            document=open(f, "rb"),
+                            filename=os.path.basename(f)
+                        )
+                        log_download(update.effective_user, f)
+                    except Exception as err:
+                        await context.bot.send_message(
+                            chat_id=update.effective_chat.id,
+                            text=f"Ошибка при отправке файла {os.path.basename(f)}: {err}"
+                        )
+            await context.bot.delete_message(
+                chat_id=update.effective_chat.id,
+                message_id=loading_message.message_id
+            )
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="Загрузка завершена! Если архив был разбит на части, скачайте все части."
+            )
+        except Exception as err:
+            await context.bot.edit_message_text(
+                message_id=loading_message.message_id,
+                chat_id=loading_message.chat_id,
+                text=f"упс, что-то пошло не так :\n{err}"
+            )
+            logger.error(err)
+            return START_ROUTES
+        return START_ROUTES
+
+
+# тут скачать все и варианты возврата
+@error_handler
+async def three(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user = update.effective_user
+    if not is_user_allowed(user.id):
+        await update.callback_query.answer(
+            "⛔️ Доступ запрещён.", show_alert=True
+        )
+        return ConversationHandler.END
+    files = FilesData()
+    files.get_files(path=MOUNT_PATH)
+    return await send_files_group(update, context, files.file_list, "все файлы")
+
+
+# конец
+@error_handler
+async def end(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user = update.effective_user
+    if not is_user_allowed(user.id):
+        await update.callback_query.answer(
+            "⛔️ Доступ запрещён.", show_alert=True
+        )
+        return ConversationHandler.END
     query = update.callback_query
     await query.answer()
-    keyboard = [
-        [InlineKeyboardButton("Назад", callback_data=str(ONE))],
-        [InlineKeyboardButton("Выход", callback_data=str(TWO))]
-    ]
-    reply_markup = InlineKeyboardMarkup(buttons_list + keyboard)
-
-    try:
-        await query.edit_message_text(
-            text="Какой файл?\nпоказаны последние 15 файлов",
-            reply_markup=reply_markup
-        )
-    except Exception as err:
-        await query.edit_message_text(
-            text=f"упс, что-то пошло не так :\n{err}",
-            reply_markup=reply_markup
-        )
-        return START_ROUTES
-    return START_ROUTES
+    await query.edit_message_text(text="👋")
+    sleep(1)
+    await query.delete_message()
+    await context.bot.delete_message(
+        chat_id=update.effective_chat.id,
+        message_id=context.get_start_message()
+    )
+    return ConversationHandler.END
 
 
-# тут скачать отдельный файл и варианты возврат
+@error_handler
 async def seven(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user = update.effective_user
+    if not is_user_allowed(user.id):
+        await update.callback_query.answer(
+            "⛔️ Доступ запрещён.", show_alert=True
+        )
+        return ConversationHandler.END
     files = FilesData()
     files.get_files(path=MOUNT_PATH)
     buttons_list = [
@@ -189,27 +427,28 @@ async def seven(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     reply_markup = InlineKeyboardMarkup(buttons_list + keyboard)
     file = update.callback_query.data.split(":", maxsplit=1)[-1]
 
+    # Проверка безопасности пути и существования файла
+    if not is_safe_path(MOUNT_PATH, file) or not is_file_accessible(file):
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="Файл не найден или недоступен."
+        )
+        return START_ROUTES
+
     await query.delete_message()
     loading_message = await context.bot.send_message(
         text="загружаю...",
         chat_id=update.effective_chat.id
     )
     try:
-        media = [telegram.InputMediaAudio(
-            open(file, "rb"))]
-        await context.bot.send_media_group(
-            chat_id=update.effective_chat.id,
-            media=media
-        )
+        await send_file_with_logging(context, update.effective_chat.id, user, file)
         await context.bot.delete_message(
             chat_id=update.effective_chat.id,
             message_id=loading_message.message_id
         )
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text="Загрузка завершена, что дальше?\n"
-            "показаны последние 15 файлов",
-            reply_markup=reply_markup
+            text="Загрузка завершена! Если файл был разбит на части, скачайте все части."
         )
     except Exception as err:
         await context.bot.edit_message_text(
@@ -223,70 +462,67 @@ async def seven(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return START_ROUTES
 
 
-# тут скачать все и варианты возврата
-async def three(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    files = FilesData()
-    files.get_files(path=MOUNT_PATH)
-    query = update.callback_query
-    await query.answer()
+def check_env_vars():
+    required = ["TELEGRAM_TOKEN", "MOUNT_PATH"]
+    missing = [v for v in required if not os.getenv(v)]
+    if missing:
+        raise RuntimeError(f"Отсутствуют обязательные переменные окружения: {', '.join(missing)}")
 
-    keyboard = [
-        [InlineKeyboardButton("Еще раз с начала", callback_data=str(ONE))],
-        [InlineKeyboardButton("Выход", callback_data=str(TWO))]
-    ]
-    audio_files_chunks = get_chunks(files.file_list)
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.delete_message()
-    loading_message = await context.bot.send_message(
-        text="загружаю...",
-        chat_id=update.effective_chat.id
-    )
+
+def is_safe_path(base_path, path):
+    base_path = os.path.realpath(base_path)
+    path = os.path.realpath(path)
+    return os.path.commonpath([base_path]) == os.path.commonpath([base_path, path])
+
+
+def is_file_accessible(path):
+    return os.path.isfile(path) and os.access(path, os.R_OK)
+
+
+def log_download(user, file_path):
+    logger.info(f"User {user.id} ({user.first_name}) скачал файл: {file_path}")
+
+
+def clean_old_archives(folder, max_age_seconds=3600):
+    now = time.time()
+    patterns = ["*.zip", "*.zip.part*"]
+    for pattern in patterns:
+        for file_path in glob.glob(os.path.join(folder, pattern)):
+            try:
+                if os.path.isfile(file_path) and now - os.path.getmtime(file_path) > max_age_seconds:
+                    os.remove(file_path)
+                    logger.info(f"Удалён старый архив: {file_path}")
+            except Exception as e:
+                logger.warning(f"Ошибка при удалении архива {file_path}: {e}")
+
+
+async def periodic_clean_archives(folder, max_age_seconds=3600, interval=1800):
+    while True:
+        clean_old_archives(folder, max_age_seconds)
+        await asyncio.sleep(interval)
+
+
+def send_file_with_logging(context, chat_id, user, file_path):
     try:
-        for chunk in audio_files_chunks:
-            media = [telegram.InputMediaAudio(
-                open(file, "rb")) for file in chunk]
-            await context.bot.send_media_group(
-                chat_id=update.effective_chat.id,
-                media=media
+        with open(file_path, "rb") as f:
+            context.bot.send_document(
+                chat_id=chat_id,
+                document=f,
+                filename=os.path.basename(file_path)
             )
-            sleep(2)
-        await context.bot.delete_message(
-            chat_id=update.effective_chat.id,
-            message_id=loading_message.message_id
-        )
-
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="Загрузка завершена, что дальше?", reply_markup=reply_markup
-        )
+        log_download(user, file_path)
     except Exception as err:
-        await context.bot.edit_message_text(
-            message_id=loading_message.message_id,
-            chat_id=loading_message.chat_id,
-            text=f"упс, что-то пошло не так :\n{err}",
-            reply_markup=reply_markup
+        context.bot.send_message(
+            chat_id=chat_id,
+            text=f"Ошибка при отправке файла {os.path.basename(file_path)}: {err}"
         )
-        logger.error(err)
-        return START_ROUTES
-    return START_ROUTES
-
-
-# конец
-async def end(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text(text="👋")
-    sleep(1)
-    await query.delete_message()
-    await context.bot.delete_message(
-        chat_id=update.effective_chat.id,
-        message_id=context.get_start_message()
-    )
-    return ConversationHandler.END
 
 
 def main() -> None:
-    """Run the bot."""
+    check_env_vars()
+    # Запуск фоновой задачи очистки архивов
+    loop = asyncio.get_event_loop()
+    loop.create_task(periodic_clean_archives(MOUNT_PATH, max_age_seconds=3600, interval=1800))
     context_types = ContextTypes(context=CustomContext, chat_data=ChatData)
     application = Application.builder().token(
         TELEGRAM_TOKEN
@@ -301,13 +537,13 @@ def main() -> None:
         states={
             START_ROUTES: [
                 CallbackQueryHandler(one, pattern="^" + str(ONE) + "$"),
-                # CallbackQueryHandler(two, pattern="^" + str(TWO) + "$"),
                 CallbackQueryHandler(three, pattern="^" + str(THREE) + "$"),
-                # CallbackQueryHandler(four, pattern="^" + str(FOUR) + "$"),
-                # CallbackQueryHandler(fith, pattern="^" + str(FITH) + "$"),
-                CallbackQueryHandler(six, pattern="^" + str(SIX) + "$"),
                 CallbackQueryHandler(seven, pattern="^file_to_download:.*"),
                 CallbackQueryHandler(end, pattern="^" + str(TWO) + "$"),
+                CallbackQueryHandler(next_page, pattern="^next_page$"),
+                CallbackQueryHandler(prev_page, pattern="^prev_page$"),
+                CallbackQueryHandler(download_today, pattern="^download_today$"),
+                CallbackQueryHandler(download_last_sunday, pattern="^download_last_sunday$"),
             ]
         },
         fallbacks=[usb_handler],

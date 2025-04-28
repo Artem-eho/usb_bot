@@ -2,6 +2,7 @@ import os
 from hurry.filesize import size
 from datetime import datetime
 import prettytable as pt
+import zipfile
 
 
 def build_table(data: list, a: str, b: str):
@@ -97,3 +98,44 @@ print(
     files.path,
     sep="\n"
 )
+
+
+def archive_file(file_path: str, archive_path: str) -> str:
+    """
+    Архивирует файл file_path в zip-архив archive_path.
+    Возвращает путь к архиву.
+    """
+    with zipfile.ZipFile(archive_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        zipf.write(file_path, arcname=os.path.basename(file_path))
+    return archive_path
+
+
+def split_file(file_path: str, part_size: int = 50 * 1024 * 1024) -> list:
+    """
+    Делит файл file_path на части размером part_size (в байтах).
+    Возвращает список путей к частям.
+    """
+    parts = []
+    with open(file_path, 'rb') as f:
+        i = 0
+        while True:
+            chunk = f.read(part_size)
+            if not chunk:
+                break
+            part_path = f"{file_path}.part{i}"
+            with open(part_path, 'wb') as pf:
+                pf.write(chunk)
+            parts.append(part_path)
+            i += 1
+    return parts
+
+
+def archive_files(file_paths: list, archive_path: str) -> str:
+    """
+    Архивирует список файлов file_paths в zip-архив archive_path.
+    Возвращает путь к архиву.
+    """
+    with zipfile.ZipFile(archive_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        for file_path in file_paths:
+            zipf.write(file_path, arcname=os.path.basename(file_path))
+    return archive_path
