@@ -578,7 +578,8 @@ async def seven(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return START_ROUTES
     file_name = update.callback_query.data.split(":", maxsplit=1)[-1].strip()
     files = FilesData()
-    files.get_files(path=MOUNT_PATH)
+    if not getattr(files, 'file_list', None) and MOUNT_PATH:
+        files.get_files(path=MOUNT_PATH)
     file_obj = next((f for f in files.file_list if f.name == file_name), None)
     if not file_obj or not is_safe_path(MOUNT_PATH, file_obj.file) or not is_file_accessible(file_obj.file):
         await update.callback_query.answer(
