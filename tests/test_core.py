@@ -356,6 +356,7 @@ class TestDownloadSpecificFile(unittest.IsolatedAsyncioTestCase):
         update.callback_query.answer = AsyncMock()
         context = MagicMock()
         context.bot.send_document = AsyncMock()
+        context.bot.send_audio = AsyncMock()
         context.bot.send_message = AsyncMock()
         context.bot.delete_message = AsyncMock()
         with patch('usb_bot.FilesData', return_value=files_data), \
@@ -368,6 +369,101 @@ class TestDownloadSpecificFile(unittest.IsolatedAsyncioTestCase):
             text="Загрузка завершена!"
         )
         os.remove(file_path)
+
+    async def test_download_specific_file_small(self):
+        """
+        Проверяет, что небольшой файл отправляется напрямую как документ/аудио и выдаётся сообщение об успехе.
+        """
+        from usb_bot import seven, MAX_FILE_SIZE
+        from unittest.mock import MagicMock, AsyncMock, patch
+        import tempfile
+        import os
+        # Создаём временный маленький файл
+        with tempfile.NamedTemporaryFile(delete=False) as tf:
+            tf.write(b'hello world')
+            tf.flush()
+            file_path = tf.name
+            file_name = os.path.basename(file_path)
+        file_obj = MagicMock()
+        file_obj.name = file_name
+        file_obj.file = file_path
+        file_obj.size = os.path.getsize(file_path)
+        file_obj.h_size = '11B'
+        files_data = MagicMock()
+        files_data.file_list = [file_obj]
+        update = MagicMock()
+        update.effective_user = MagicMock(id=1)
+        update.callback_query = AsyncMock()
+        update.callback_query.data = f'file_to_download:{file_name}'
+        update.callback_query.answer = AsyncMock()
+        context = MagicMock()
+        context.bot.send_document = AsyncMock()
+        context.bot.send_audio = AsyncMock()
+        context.bot.send_message = AsyncMock()
+        context.bot.delete_message = AsyncMock()
+        with patch('usb_bot.FilesData', return_value=files_data), \
+             patch('usb_bot.is_safe_path', return_value=True), \
+             patch('usb_bot.is_file_accessible', return_value=True):
+            await seven(update, context)
+        # Проверяем, что отправка файла была
+        context.bot.send_document.assert_awaited()
+        context.bot.send_message.assert_any_await(
+            chat_id=update.effective_chat.id,
+            text="Загрузка завершена!"
+        )
+        os.remove(file_path)
+
+    async def test_download_specific_file_large(self):
+        """
+        Проверяет, что большой файл архивируется, разбивается на части и выдаётся инструкция по склейке.
+        """
+        from usb_bot import seven, MAX_FILE_SIZE
+        from unittest.mock import MagicMock, AsyncMock, patch
+        import tempfile
+        import os
+        # Создаём временный большой файл
+        with tempfile.NamedTemporaryFile(delete=False) as tf:
+            tf.write(b'0' * (MAX_FILE_SIZE + 1024))
+            tf.flush()
+            file_path = tf.name
+            file_name = os.path.basename(file_path)
+        file_obj = MagicMock()
+        file_obj.name = file_name
+        file_obj.file = file_path
+        file_obj.size = os.path.getsize(file_path)
+        file_obj.h_size = '49MB'
+        files_data = MagicMock()
+        files_data.file_list = [file_obj]
+        update = MagicMock()
+        update.effective_user = MagicMock(id=1)
+        update.callback_query = AsyncMock()
+        update.callback_query.data = f'file_to_download:{file_name}'
+        update.callback_query.answer = AsyncMock()
+        context = MagicMock()
+        context.bot.send_document = AsyncMock()
+        context.bot.send_audio = AsyncMock()
+        context.bot.send_message = AsyncMock()
+        context.bot.delete_message = AsyncMock()
+        # Мокаем архивирование и split_file
+        fake_archive = file_path + '.zip'
+        fake_part = fake_archive + '.part0'
+        with open(fake_archive, 'wb') as fa:
+            fa.write(b'1' * (MAX_FILE_SIZE + 1))
+        with open(fake_part, 'wb') as fp:
+            fp.write(b'2' * (MAX_FILE_SIZE // 2))
+        with patch('usb_bot.FilesData', return_value=files_data), \
+             patch('usb_bot.is_safe_path', return_value=True), \
+             patch('usb_bot.is_file_accessible', return_value=True), \
+             patch('usb_bot.archive_files', side_effect=lambda files, archive_path: os.rename(fake_archive, archive_path)), \
+             patch('usb_bot.split_file', return_value=[fake_part]):
+            await seven(update, context)
+        context.bot.send_document.assert_awaited()
+        # Новый способ проверки: ищем нужную инструкцию в любом из вызовов send_message
+        calls = context.bot.send_message.await_args_list
+        assert any('Инструкция по склейке' in str(call.kwargs.get('text', '')) for call in calls)
+        os.remove(file_path)
+        if os.path.exists(fake_part):
+            os.remove(fake_part)
 
 
 if __name__ == '__main__':

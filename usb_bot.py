@@ -397,15 +397,15 @@ async def send_files_group(update, context, file_objs, label):
                     text=(
                         "<b>Загрузка завершена!</b>\n"
                         "<i>Если архив был разбит на части, скачайте все части в одну папку.</i>\n\n"
-                        "<b>\U0001F4C1 Инструкция по склейке и распаковке:</b>\n"
+                        "<b>📁 Инструкция по склейке и распаковке:</b>\n"
                         "<pre>\n"
-                        "<b>\U0001F427 Linux/macOS:</b>\n"
-                        "<code>cat archive.zip.part* &gt; archive.zip\nunzip archive.zip</code>\n\n"
-                        "<b>\U0001F5A5 Windows (PowerShell):</b>\n"
+                        "<b>🐧 Linux/macOS:</b>\n"
+                        "<code>cat archive.zip.part* > archive.zip\nunzip archive.zip</code>\n\n"
+                        "<b>🖥 Windows (PowerShell):</b>\n"
                         "<code>Get-Content archive.zip.part* -Encoding Byte -ReadCount 0 | Set-Content archive.zip -Encoding Byte\nExpand-Archive archive.zip</code>\n\n"
-                        "<b>\U0001F40D Windows (cmd):</b>\n"
+                        "<b>🐍 Windows (cmd):</b>\n"
                         "<code>copy /b archive.zip.part* archive.zip</code>\n\n"
-                        "<b>\U0001F40D Универсально (Python):</b>\n"
+                        "<b>🐍 Универсально (Python):</b>\n"
                         "<code>python -c \"with open('archive.zip','wb') as w: i=0\nwhile True:\n f='archive.zip.part'+str(i)\n if not __import__('os').path.exists(f): break\n w.write(open(f,'rb').read()); i+=1\"\nunzip archive.zip</code>\n"
                         "</pre>"
                     ),
@@ -570,6 +570,16 @@ async def six_prev_page(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
 @error_handler
 async def seven(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """
+    Handler for downloading a specific file. If the file is larger than MAX_FILE_SIZE, it is sent as an archive (possibly split into parts) with user instructions.
+
+    Args:
+        update (Update): Telegram update object.
+        context (ContextTypes.DEFAULT_TYPE): Telegram context object.
+
+    Returns:
+        int: Next conversation state.
+    """
     user = update.effective_user
     if not is_user_allowed(user.id):
         await update.callback_query.answer(
@@ -593,21 +603,80 @@ async def seven(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         text="загружаю..."
     )
     try:
-        await context.bot.send_document(
-            chat_id=update.effective_chat.id,
-            document=open(file_path, "rb"),
-            filename=os.path.basename(file_path)
-        )
-        log_download(user, file_path)
-        await context.bot.delete_message(
-            chat_id=update.effective_chat.id,
-            message_id=loading_message.message_id
-        )
-        await context.bot.send_message(
-            chat_id=update.effective_chat.id,
-            text="Загрузка завершена!"
-        )
+        if file_obj.size <= MAX_FILE_SIZE:
+            ext = os.path.splitext(file_path)[1].lower()
+            if ext in ['.mp3', '.wav', '.ogg', '.m4a']:
+                await context.bot.send_audio(
+                    chat_id=update.effective_chat.id,
+                    audio=open(file_path, "rb"),
+                    filename=os.path.basename(file_path)
+                )
+            else:
+                await context.bot.send_document(
+                    chat_id=update.effective_chat.id,
+                    document=open(file_path, "rb"),
+                    filename=os.path.basename(file_path)
+                )
+            log_download(user, file_path)
+            await context.bot.delete_message(
+                chat_id=update.effective_chat.id,
+                message_id=loading_message.message_id
+            )
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="Загрузка завершена!"
+            )
+        else:
+            # Архивируем и отправляем архив/части
+            import tempfile
+            archive_sent = False
+            with tempfile.TemporaryDirectory() as tmpdir:
+                archive_path = os.path.join(tmpdir, f"{os.path.basename(file_path)}.zip")
+                archive_files([file_path], archive_path)
+                archive_size = os.path.getsize(archive_path)
+                if archive_size <= MAX_FILE_SIZE:
+                    send_files = [archive_path]
+                else:
+                    send_files = split_file(archive_path, MAX_FILE_SIZE)
+                for part in send_files:
+                    await context.bot.send_document(
+                        chat_id=update.effective_chat.id,
+                        document=open(part, "rb"),
+                        filename=os.path.basename(part)
+                    )
+                    log_download(user, part)
+                    archive_sent = True
+            await context.bot.delete_message(
+                chat_id=update.effective_chat.id,
+                message_id=loading_message.message_id
+            )
+            if archive_sent:
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=(
+                        "<b>Загрузка завершена!</b>\n"
+                        "<i>Если архив был разбит на части, скачайте все части в одну папку.</i>\n\n"
+                        "<b>📁 Инструкция по склейке и распаковке:</b>\n"
+                        "<pre>\n"
+                        "<b>🐧 Linux/macOS:</b>\n"
+                        "<code>cat archive.zip.part* > archive.zip\nunzip archive.zip</code>\n\n"
+                        "<b>🖥 Windows (PowerShell):</b>\n"
+                        "<code>Get-Content archive.zip.part* -Encoding Byte -ReadCount 0 | Set-Content archive.zip -Encoding Byte\nExpand-Archive archive.zip</code>\n\n"
+                        "<b>🐍 Windows (cmd):</b>\n"
+                        "<code>copy /b archive.zip.part* archive.zip</code>\n\n"
+                        "<b>🐍 Универсально (Python):</b>\n"
+                        "<code>python -c \"with open('archive.zip','wb') as w: i=0\nwhile True:\n f='archive.zip.part'+str(i)\n if not __import__('os').path.exists(f): break\n w.write(open(f,'rb').read()); i+=1\"\nunzip archive.zip</code>\n"
+                        "</pre>"
+                    ),
+                    parse_mode=telegram.constants.ParseMode.HTML
+                )
+            else:
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text="Загрузка завершена!"
+                )
     except Exception as err:
+        logger.exception("Ошибка при отправке файла: user_id=%s, file=%s", user.id, file_path)
         await context.bot.delete_message(
             chat_id=update.effective_chat.id,
             message_id=loading_message.message_id
