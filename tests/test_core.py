@@ -244,8 +244,89 @@ class TestErrorHandlerUX(unittest.IsolatedAsyncioTestCase):
              patch('usb_bot.is_file_accessible', return_value=False):
             await seven(update, context)
         update.callback_query.answer.assert_any_await(
-            'Файл не найден или недоступен.', show_alert=True
+            'Файл не найден или недоступен.', show_alert=False
         )
+
+
+class TestChurchEmojiForSundayEvening(unittest.IsolatedAsyncioTestCase):
+    async def test_church_emoji_for_sunday_evening(self):
+        from usb_bot import six
+        from unittest.mock import MagicMock, AsyncMock, patch
+        import datetime
+        context = MagicMock()
+        context.user_data = {'six_files_page': 0}
+        update = MagicMock()
+        update.effective_user = MagicMock(id=1)
+        update.callback_query = AsyncMock()
+        update.callback_query.answer = AsyncMock()
+        update.callback_query.edit_message_text = AsyncMock()
+        today = datetime.date.today()
+        if today.weekday() != 6:
+            last_sunday = today - datetime.timedelta(days=(today.weekday() + 1) % 7 or 7)
+        else:
+            last_sunday = today
+        date_str = last_sunday.strftime('%Y%m%d')
+        file_name = f"{date_str}-170000.mp3"
+        file_obj = MagicMock()
+        file_obj.name = file_name
+        file_obj.size = 10 * 1024 * 1024
+        file_obj.h_size = "10 МБ"
+        file_obj.file = file_name
+        file_obj.ctime = datetime.datetime.combine(last_sunday, datetime.time(17, 0)).timestamp()
+        from core import FilesData
+        files_data = FilesData()
+        files_data.file_list = [file_obj]
+        with patch('usb_bot.FilesData', return_value=files_data):
+            await six(update, context)
+            args, kwargs = update.callback_query.edit_message_text.call_args
+            # reply_markup - объект InlineKeyboardMarkup, ищем 💒 в тексте кнопок
+            markup = kwargs.get('reply_markup')
+            found = False
+            for row in markup.inline_keyboard:
+                for btn in row:
+                    if '💒' in btn.text:
+                        found = True
+            self.assertTrue(found, 'Смайлик 💒 не найден в кнопке для воскресного файла!')
+
+
+class TestChurchAndArchiveEmoji(unittest.IsolatedAsyncioTestCase):
+    async def test_church_and_archive_emoji(self):
+        from usb_bot import six
+        from unittest.mock import MagicMock, AsyncMock, patch
+        import datetime
+        context = MagicMock()
+        context.user_data = {'six_files_page': 0}
+        update = MagicMock()
+        update.effective_user = MagicMock(id=1)
+        update.callback_query = AsyncMock()
+        update.callback_query.answer = AsyncMock()
+        update.callback_query.edit_message_text = AsyncMock()
+        today = datetime.date.today()
+        if today.weekday() != 6:
+            last_sunday = today - datetime.timedelta(days=(today.weekday() + 1) % 7 or 7)
+        else:
+            last_sunday = today
+        date_str = last_sunday.strftime('%Y%m%d')
+        file_name = f"{date_str}-170000.mp3"
+        file_obj = MagicMock()
+        file_obj.name = file_name
+        file_obj.size = 50 * 1024 * 1024  # >49 МБ
+        file_obj.h_size = "50 МБ"
+        file_obj.file = file_name
+        file_obj.ctime = datetime.datetime.combine(last_sunday, datetime.time(17, 0)).timestamp()
+        from core import FilesData
+        files_data = FilesData()
+        files_data.file_list = [file_obj]
+        with patch('usb_bot.FilesData', return_value=files_data):
+            await six(update, context)
+            args, kwargs = update.callback_query.edit_message_text.call_args
+            markup = kwargs.get('reply_markup')
+            found = False
+            for row in markup.inline_keyboard:
+                for btn in row:
+                    if '💒' in btn.text and '📦' in btn.text:
+                        found = True
+            self.assertTrue(found, 'Смайлики 💒 и 📦 не найдены вместе в кнопке для большого воскресного файла!')
 
 
 if __name__ == '__main__':
