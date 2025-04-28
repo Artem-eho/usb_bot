@@ -161,7 +161,7 @@ def make_greeting(user_first_name, files, mount_path, bot_start_time):
         last_file_info = 'Нет файлов'
     uptime = datetime.datetime.now() - bot_start_time
     uptime_str = str(uptime).split('.')[0]
-    return message = (
+    return (
         'Привет, {}!\n'
         'Сегодня: {}\n'
         'Файлов в папке: {} ({})\n'
@@ -253,7 +253,7 @@ async def one(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         )
     except Exception as err:
         await query.edit_message_text(
-            text=f"упс, что-то пошло не так :\n{err}",
+            text=f"упс, что-то пошло не так: \n{err}",
             reply_markup=reply_markup
         )
     return START_ROUTES
@@ -359,7 +359,7 @@ async def send_files_group(update, context, file_objs, label):
             await context.bot.edit_message_text(
                 message_id=loading_message.message_id,
                 chat_id=loading_message.chat_id,
-                text=f"упс, что-то пошло не так :\n{err}"
+                text=f"упс, что-то пошло не так: \n{err}"
             )
             logger.error(err)
             return START_ROUTES
@@ -453,7 +453,7 @@ async def seven(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         await context.bot.edit_message_text(
             message_id=loading_message.message_id,
             chat_id=loading_message.chat_id,
-            text=f"упс, что-то пошло не так :\n{err}",
+            text=f"упс, что-то пошло не так: \n{err}",
             reply_markup=reply_markup
         )
         logger.error(err)
