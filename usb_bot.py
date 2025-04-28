@@ -161,7 +161,7 @@ def make_greeting(user_first_name, files, mount_path, bot_start_time):
         last_file_info = 'Нет файлов'
     uptime = datetime.datetime.now() - bot_start_time
     uptime_str = str(uptime).split('.')[0]
-    message = (
+    return message = (
         'Привет, {}!\n'
         'Сегодня: {}\n'
         'Файлов в папке: {} ({})\n'
@@ -177,7 +177,6 @@ def make_greeting(user_first_name, files, mount_path, bot_start_time):
         last_file_info,
         uptime_str
     )
-    return message
 
 
 # старт
