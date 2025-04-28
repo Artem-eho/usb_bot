@@ -484,7 +484,7 @@ async def six(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     # Получаем текущую страницу для выбора файла
     page = int(context.user_data.get('six_files_page', 0))
     files = FilesData()
-    if not getattr(files, 'file_list', None):
+    if not getattr(files, 'file_list', None) and MOUNT_PATH:
         files.get_files(path=MOUNT_PATH)
     total_files = len(files.file_list)
     # Сортируем файлы от самых новых к старым
