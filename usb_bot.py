@@ -230,7 +230,7 @@ async def one(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     )
     files_table_html = html.escape(str(files_table))
     futter_table_html = html.escape(str(futter_table))
-    message = f'<pre>{files_table_html}</pre><pre>{futter_table_html}</pre>'
+    message = f'<pre>{files_table_html}\n{futter_table_html}</pre>'
     keyboard = []
     # Формируем кнопки пагинации в один ряд
     pagination_row = []
@@ -245,7 +245,10 @@ async def one(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         [InlineKeyboardButton("Скачать за сегодня", callback_data="download_today")],
         [InlineKeyboardButton("Скачать за последнее воскресенье", callback_data="download_last_sunday")],
         [InlineKeyboardButton("Скачать конкретный файл", callback_data=str(SIX))],
-        [InlineKeyboardButton("Выход", callback_data=str(TWO))],
+        [
+            InlineKeyboardButton("⬅️ Назад", callback_data=str(ONE)),
+            InlineKeyboardButton("🚪 Выход", callback_data=str(TWO))
+        ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     try:
@@ -537,8 +540,10 @@ async def six(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         file_buttons.append(pagination_row)
     # Кнопки возврата
     file_buttons += [
-        [InlineKeyboardButton("Выход", callback_data=str(TWO))],
-        [InlineKeyboardButton("Назад", callback_data=str(ONE))],
+        [
+            InlineKeyboardButton("⬅️ Назад", callback_data=str(ONE)),
+            InlineKeyboardButton("🚪 Выход", callback_data=str(TWO))
+        ]
     ]
     reply_markup = InlineKeyboardMarkup(file_buttons)
     # Вычисляем номер страницы и всего страниц
