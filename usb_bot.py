@@ -189,8 +189,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     files.get_files(path=MOUNT_PATH)
     message = make_greeting(user.first_name, files, MOUNT_PATH, BOT_START_TIME)
     keyboard = [
-        [InlineKeyboardButton("Посмотреть файлы", callback_data=str(ONE))],
-        [InlineKeyboardButton("Выход", callback_data=str(TWO))],
+        [InlineKeyboardButton("👀 Посмотреть файлы", callback_data=str(ONE))],
+        [InlineKeyboardButton("🚪 Выход", callback_data=str(TWO))],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     sent_message = await update.message.reply_text(
@@ -235,16 +235,16 @@ async def one(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     # Формируем кнопки пагинации в один ряд
     pagination_row = []
     if page > 0:
-        pagination_row.append(InlineKeyboardButton("⬅️ Назад", callback_data="prev_page"))
+        pagination_row.append(InlineKeyboardButton("◀️", callback_data="prev_page"))
     if end < total_files:
-        pagination_row.append(InlineKeyboardButton("Вперёд ➡️", callback_data="next_page"))
+        pagination_row.append(InlineKeyboardButton("▶️", callback_data="next_page"))
     if pagination_row:
         keyboard.append(pagination_row)
     keyboard += [
-        [InlineKeyboardButton("Скачать всё", callback_data=str(THREE))],
-        [InlineKeyboardButton("Скачать за сегодня", callback_data="download_today")],
-        [InlineKeyboardButton("Скачать за последнее воскресенье", callback_data="download_last_sunday")],
-        [InlineKeyboardButton("Скачать конкретный файл", callback_data=str(SIX))],
+        [InlineKeyboardButton("📥 Скачать всё", callback_data=str(THREE))],
+        [InlineKeyboardButton("📅 Скачать за сегодня", callback_data="download_today")],
+        [InlineKeyboardButton("💒 Скачать за последнее воскресенье", callback_data="download_last_sunday")],
+        [InlineKeyboardButton("🎼 Скачать конкретный файл", callback_data=str(SIX))],
         [
             InlineKeyboardButton("🚪 Выход", callback_data=str(TWO))
         ]
@@ -527,15 +527,15 @@ async def six(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     # Кнопки пагинации файлов в один ряд
     pagination_row = []
     if page > 0:
-        pagination_row.append(InlineKeyboardButton("⬅️ Назад", callback_data="six_prev_page"))
+        pagination_row.append(InlineKeyboardButton("◀️", callback_data="six_prev_page"))
     if end < total_files:
-        pagination_row.append(InlineKeyboardButton("Вперёд ➡️", callback_data="six_next_page"))
+        pagination_row.append(InlineKeyboardButton("▶️", callback_data="six_next_page"))
     if pagination_row:
         file_buttons.append(pagination_row)
     # Кнопки возврата
     file_buttons += [
         [
-            InlineKeyboardButton("⬅️ Назад", callback_data=str(ONE)),
+            InlineKeyboardButton("🔙 Назад", callback_data=str(ONE)),
             InlineKeyboardButton("🚪 Выход", callback_data=str(TWO))
         ]
     ]
