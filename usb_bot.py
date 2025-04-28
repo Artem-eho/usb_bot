@@ -54,11 +54,12 @@ ONE, TWO, THREE, FOUR, FITH, SIX = range(6)
 
 MAX_FILE_SIZE = 48 * 1024 * 1024  # 48 МБ
 PAGE_SIZE = 10
-SIX_FILES_PAGE_SIZE = 15
+SIX_FILES_PAGE_SIZE = 8
 
 # Глобальная переменная для аптайма
 BOT_START_TIME = datetime.datetime.now()
 ARCHIVE_SEMAPHORE = asyncio.Semaphore(20)
+MENU_LIFETIME_SECONDS = 15 * 60  # 15 минут
 
 
 class ChatData:
@@ -192,9 +193,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         [InlineKeyboardButton("Выход", callback_data=str(TWO))],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(
+    sent_message = await update.message.reply_text(
         message,
         reply_markup=reply_markup)
+    # Планируем удаление меню через 15 минут
+    asyncio.create_task(schedule_menu_deletion(context, sent_message.chat_id, sent_message.message_id))
     return START_ROUTES
 
 
@@ -213,6 +216,8 @@ async def one(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     files = FilesData()
     files.get_files(path=MOUNT_PATH)
     total_files = len(files.file_list)
+    # Сортируем файлы от самых новых к старым
+    files.file_list.sort(key=lambda f: f.ctime, reverse=True)
     start = page * PAGE_SIZE
     end = start + PAGE_SIZE
     page_files = files.file_list[start:end]
@@ -244,11 +249,13 @@ async def one(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     try:
-        await query.edit_message_text(
+        sent = await query.edit_message_text(
             text=message,
             parse_mode=telegram.constants.ParseMode.HTML,
             reply_markup=reply_markup
         )
+        # Планируем удаление меню через 15 минут
+        asyncio.create_task(schedule_menu_deletion(context, sent.chat_id, sent.message_id))
     except telegram.error.BadRequest as err:
         if "Message is not modified" in str(err):
             pass
@@ -295,7 +302,7 @@ async def download_last_sunday(update: Update, context: ContextTypes.DEFAULT_TYP
     user = update.effective_user
     if not is_user_allowed(user.id):
         await update.callback_query.answer(
-            "⛔️ Доступ запрещён.", show_alert=True
+            "⛔️ Доступ запрещён.", show_alert=False
         )
         return START_ROUTES
     files = FilesData()
@@ -325,7 +332,7 @@ async def download_last_sunday(update: Update, context: ContextTypes.DEFAULT_TYP
                 pass
     if not sunday_files:
         await update.callback_query.answer(
-            "Нет файлов за последнее воскресенье.", show_alert=True
+            "Нет файлов за последнее воскресенье.", show_alert=False
         )
         # Оставляем меню открытым
         return await one(update, context)
@@ -339,7 +346,7 @@ async def send_files_group(update, context, file_objs, label):
         await query.answer()
         if not file_objs:
             await update.callback_query.answer(
-                f"Нет файлов {label}.", show_alert=True
+                f"Нет файлов {label}.", show_alert=False
             )
             # Оставляем меню открытым
             return await one(update, context)
@@ -395,7 +402,22 @@ async def send_files_group(update, context, file_objs, label):
             )
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
-                text="Загрузка завершена! Если архив был разбит на части, скачайте все части."
+                text=(
+                    "<b>Загрузка завершена!</b>\n"
+                    "<i>Если архив был разбит на части, скачайте все части в одну папку.</i>\n\n"
+                    "<b>\U0001F4C1 Инструкция по склейке и распаковке:</b>\n"
+                    "<pre>\n"
+                    "<b>\U0001F427 Linux/macOS:</b>\n"
+                    "<code>cat archive.zip.part* &gt; archive.zip\nunzip archive.zip</code>\n\n"
+                    "<b>\U0001F5A5 Windows (PowerShell):</b>\n"
+                    "<code>Get-Content archive.zip.part* -Encoding Byte -ReadCount 0 | Set-Content archive.zip -Encoding Byte\nExpand-Archive archive.zip</code>\n\n"
+                    "<b>\U0001F40D Windows (cmd):</b>\n"
+                    "<code>copy /b archive.zip.part* archive.zip</code>\n\n"
+                    "<b>\U0001F40D Универсально (Python):</b>\n"
+                    "<code>python -c \"with open('archive.zip','wb') as w: i=0\nwhile True:\n f='archive.zip.part'+str(i)\n if not __import__('os').path.exists(f): break\n w.write(open(f,'rb').read()); i+=1\"\nunzip archive.zip</code>\n"
+                    "</pre>"
+                ),
+                parse_mode=telegram.constants.ParseMode.HTML
             )
         except Exception as err:
             try:
@@ -454,7 +476,7 @@ async def six(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
     if not is_user_allowed(user.id):
         await update.callback_query.answer(
-            "⛔️ Доступ запрещён.", show_alert=True
+            "⛔️ Доступ запрещён.", show_alert=False
         )
         return START_ROUTES
     query = update.callback_query
@@ -462,21 +484,49 @@ async def six(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     # Получаем текущую страницу для выбора файла
     page = int(context.user_data.get('six_files_page', 0))
     files = FilesData()
-    files.get_files(path=MOUNT_PATH)
+    if not getattr(files, 'file_list', None):
+        files.get_files(path=MOUNT_PATH)
     total_files = len(files.file_list)
+    # Сортируем файлы от самых новых к старым
+    files.file_list.sort(key=lambda f: f.ctime, reverse=True)
+    last_sunday = None
+    today = datetime.date.today()
+    if today.weekday() == 6:
+        last_sunday = today
+    else:
+        last_sunday = today - datetime.timedelta(days=(today.weekday() + 1) % 7 or 7)
+    last_sunday_str = last_sunday.strftime('%Y%m%d')
     start = page * SIX_FILES_PAGE_SIZE
     end = start + SIX_FILES_PAGE_SIZE
     page_files = files.file_list[start:end]
-    # Формируем кнопки файлов с иконкой архиватора для больших файлов
-    file_buttons = [
-        [
+    # Формируем кнопки файлов с иконкой архиватора для больших файлов и 💒 для воскресных 16:00-19:00
+    file_buttons = []
+    for f in page_files:
+        name = str(f.name)
+        size = int(f.size)
+        h_size = str(f.h_size)
+        icons = []
+        match = re.search(r'(\d{8})-(\d{6})', name)
+        is_church = False
+        if match:
+            date_str, time_str = match.groups()
+            if date_str == last_sunday_str:
+                hour = int(time_str[:2])
+                if 16 <= hour < 19:
+                    is_church = True
+        is_archive = size > MAX_FILE_SIZE
+        if is_church:
+            icons.append('💒')
+        if is_archive:
+            icons.append('📦')
+        icon_str = f" {' '.join(icons)}" if icons else ""
+        print('DEBUG button:', f"{name} ({h_size}){icon_str}")
+        file_buttons.append([
             InlineKeyboardButton(
-                f"{f.name} ({f.h_size}){' 📦' if f.size > 49 * 1024 * 1024 else ''}",
-                callback_data=f"file_to_download:{f.file}"
+                f"{name} ({h_size}){icon_str}",
+                callback_data=f"file_to_download:{name}"
             )
-        ]
-        for f in page_files
-    ]
+        ])
     # Кнопки пагинации файлов в один ряд
     pagination_row = []
     if page > 0:
@@ -491,9 +541,12 @@ async def six(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         [InlineKeyboardButton("Назад", callback_data=str(ONE))],
     ]
     reply_markup = InlineKeyboardMarkup(file_buttons)
+    # Вычисляем номер страницы и всего страниц
+    total_pages = (total_files + SIX_FILES_PAGE_SIZE - 1) // SIX_FILES_PAGE_SIZE
+    page_number = page + 1 if total_pages > 0 else 1
     try:
         await query.edit_message_text(
-            text="Выберите файл для скачивания:",
+            text=f"Выберите файл для скачивания:\nСтраница {page_number} из {total_pages}",
             reply_markup=reply_markup
         )
     except telegram.error.BadRequest as err:
@@ -521,26 +574,22 @@ async def seven(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
     if not is_user_allowed(user.id):
         await update.callback_query.answer(
-            "⛔️ Доступ запрещён.", show_alert=True
+            "⛔️ Доступ запрещён.", show_alert=False
         )
         return START_ROUTES
     file = update.callback_query.data.split(":", maxsplit=1)[-1].strip()
     # Проверка безопасности пути и существования файла
     if not is_safe_path(MOUNT_PATH, file) or not is_file_accessible(file):
         await update.callback_query.answer(
-            "Файл не найден или недоступен.", show_alert=True
+            "Файл не найден или недоступен.", show_alert=False
         )
         # Оставляем меню открытым
         return await six(update, context)
     await update.callback_query.answer()
-    try:
-        await update.callback_query.edit_message_text(text="загружаю...")
-    except telegram.error.BadRequest as err:
-        if "Message is not modified" in str(err):
-            pass
-        else:
-            raise
-    await update.callback_query.edit_message_text(text="загружаю...")
+    loading_message = await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text="загружаю..."
+    )
     try:
         await context.bot.send_document(
             chat_id=update.effective_chat.id,
@@ -548,11 +597,19 @@ async def seven(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             filename=os.path.basename(file)
         )
         log_download(user, file)
+        await context.bot.delete_message(
+            chat_id=update.effective_chat.id,
+            message_id=loading_message.message_id
+        )
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text="Загрузка завершена!"
         )
     except Exception as err:
+        await context.bot.delete_message(
+            chat_id=update.effective_chat.id,
+            message_id=loading_message.message_id
+        )
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
             text=f"Ошибка при отправке файла {os.path.basename(file)}: {err}"
@@ -614,6 +671,14 @@ def send_file_with_logging(context, chat_id, user, file_path):
             chat_id=chat_id,
             text=f"Ошибка при отправке файла {os.path.basename(file_path)}: {err}"
         )
+
+
+async def schedule_menu_deletion(context, chat_id, message_id, delay=MENU_LIFETIME_SECONDS):
+    await asyncio.sleep(delay)
+    try:
+        await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+    except Exception as e:
+        pass  # Сообщение уже удалено или недоступно
 
 
 def main() -> None:
