@@ -329,5 +329,46 @@ class TestChurchAndArchiveEmoji(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(found, 'Смайлики 💒 и 📦 не найдены вместе в кнопке для большого воскресного файла!')
 
 
+class TestDownloadSpecificFile(unittest.IsolatedAsyncioTestCase):
+    async def test_download_specific_file(self):
+        from usb_bot import seven
+        from unittest.mock import MagicMock, AsyncMock, patch
+        import tempfile
+        import os
+        # Создаём временный файл
+        with tempfile.NamedTemporaryFile(delete=False) as tf:
+            tf.write(b'hello world')
+            tf.flush()
+            file_path = tf.name
+            file_name = os.path.basename(file_path)
+        # Мокаем FilesData
+        file_obj = MagicMock()
+        file_obj.name = file_name
+        file_obj.file = file_path
+        file_obj.size = os.path.getsize(file_path)
+        file_obj.h_size = '11B'
+        files_data = MagicMock()
+        files_data.file_list = [file_obj]
+        update = MagicMock()
+        update.effective_user = MagicMock(id=1)
+        update.callback_query = AsyncMock()
+        update.callback_query.data = f'file_to_download:{file_name}'
+        update.callback_query.answer = AsyncMock()
+        context = MagicMock()
+        context.bot.send_document = AsyncMock()
+        context.bot.send_message = AsyncMock()
+        context.bot.delete_message = AsyncMock()
+        with patch('usb_bot.FilesData', return_value=files_data), \
+             patch('usb_bot.is_safe_path', return_value=True), \
+             patch('usb_bot.is_file_accessible', return_value=True):
+            await seven(update, context)
+        context.bot.send_document.assert_awaited()
+        context.bot.send_message.assert_any_await(
+            chat_id=update.effective_chat.id,
+            text="Загрузка завершена!"
+        )
+        os.remove(file_path)
+
+
 if __name__ == '__main__':
     unittest.main()

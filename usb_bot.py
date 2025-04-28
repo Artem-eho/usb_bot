@@ -576,14 +576,16 @@ async def seven(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             "⛔️ Доступ запрещён.", show_alert=False
         )
         return START_ROUTES
-    file = update.callback_query.data.split(":", maxsplit=1)[-1].strip()
-    # Проверка безопасности пути и существования файла
-    if not is_safe_path(MOUNT_PATH, file) or not is_file_accessible(file):
+    file_name = update.callback_query.data.split(":", maxsplit=1)[-1].strip()
+    files = FilesData()
+    files.get_files(path=MOUNT_PATH)
+    file_obj = next((f for f in files.file_list if f.name == file_name), None)
+    if not file_obj or not is_safe_path(MOUNT_PATH, file_obj.file) or not is_file_accessible(file_obj.file):
         await update.callback_query.answer(
             "Файл не найден или недоступен.", show_alert=False
         )
-        # Оставляем меню открытым
         return await six(update, context)
+    file_path = file_obj.file
     await update.callback_query.answer()
     loading_message = await context.bot.send_message(
         chat_id=update.effective_chat.id,
@@ -592,10 +594,10 @@ async def seven(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     try:
         await context.bot.send_document(
             chat_id=update.effective_chat.id,
-            document=open(file, "rb"),
-            filename=os.path.basename(file)
+            document=open(file_path, "rb"),
+            filename=os.path.basename(file_path)
         )
-        log_download(user, file)
+        log_download(user, file_path)
         await context.bot.delete_message(
             chat_id=update.effective_chat.id,
             message_id=loading_message.message_id
@@ -611,7 +613,7 @@ async def seven(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         )
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text=f"Ошибка при отправке файла {os.path.basename(file)}: {err}"
+            text=f"Ошибка при отправке файла {os.path.basename(file_path)}: {err}"
         )
     return START_ROUTES
 
