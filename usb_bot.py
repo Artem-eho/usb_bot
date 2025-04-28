@@ -344,6 +344,7 @@ async def send_files_group(update, context, file_objs, label):
             chat_id=update.effective_chat.id
         )
         try:
+            archive_sent = False
             for f in file_objs:
                 try:
                     file_size = os.path.getsize(f.file)
@@ -380,6 +381,7 @@ async def send_files_group(update, context, file_objs, label):
                                     filename=os.path.basename(part)
                                 )
                                 log_download(update.effective_user, part)
+                                archive_sent = True
                 except Exception as err:
                     await context.bot.send_message(
                         chat_id=update.effective_chat.id,
@@ -389,25 +391,31 @@ async def send_files_group(update, context, file_objs, label):
                 chat_id=update.effective_chat.id,
                 message_id=loading_message.message_id
             )
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text=(
-                    "<b>Загрузка завершена!</b>\n"
-                    "<i>Если архив был разбит на части, скачайте все части в одну папку.</i>\n\n"
-                    "<b>\U0001F4C1 Инструкция по склейке и распаковке:</b>\n"
-                    "\n"
-                    "<b>\U0001F427 Linux/macOS:</b>\n"
-                    "<code>cat archive.zip.part* &gt; archive.zip\nunzip archive.zip</code>\n\n"
-                    "<b>\U0001F5A5 Windows (PowerShell):</b>\n"
-                    "<code>Get-Content archive.zip.part* -Encoding Byte -ReadCount 0 | Set-Content archive.zip -Encoding Byte\nExpand-Archive archive.zip</code>\n\n"
-                    "<b>\U0001F40D Windows (cmd):</b>\n"
-                    "<code>copy /b archive.zip.part* archive.zip</code>\n\n"
-                    "<b>\U0001F40D Универсально (Python):</b>\n"
-                    "<code>python -c \"with open('archive.zip','wb') as w: i=0\nwhile True:\n f='archive.zip.part'+str(i)\n if not __import__('os').path.exists(f): break\n w.write(open(f,'rb').read()); i+=1\"\nunzip archive.zip</code>\n"
-                    ""
-                ),
-                parse_mode=telegram.constants.ParseMode.HTML
-            )
+            if archive_sent:
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=(
+                        "<b>Загрузка завершена!</b>\n"
+                        "<i>Если архив был разбит на части, скачайте все части в одну папку.</i>\n\n"
+                        "<b>\U0001F4C1 Инструкция по склейке и распаковке:</b>\n"
+                        "<pre>\n"
+                        "<b>\U0001F427 Linux/macOS:</b>\n"
+                        "<code>cat archive.zip.part* &gt; archive.zip\nunzip archive.zip</code>\n\n"
+                        "<b>\U0001F5A5 Windows (PowerShell):</b>\n"
+                        "<code>Get-Content archive.zip.part* -Encoding Byte -ReadCount 0 | Set-Content archive.zip -Encoding Byte\nExpand-Archive archive.zip</code>\n\n"
+                        "<b>\U0001F40D Windows (cmd):</b>\n"
+                        "<code>copy /b archive.zip.part* archive.zip</code>\n\n"
+                        "<b>\U0001F40D Универсально (Python):</b>\n"
+                        "<code>python -c \"with open('archive.zip','wb') as w: i=0\nwhile True:\n f='archive.zip.part'+str(i)\n if not __import__('os').path.exists(f): break\n w.write(open(f,'rb').read()); i+=1\"\nunzip archive.zip</code>\n"
+                        "</pre>"
+                    ),
+                    parse_mode=telegram.constants.ParseMode.HTML
+                )
+            else:
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text="Загрузка завершена!"
+                )
         except Exception as err:
             try:
                 await context.bot.edit_message_text(
