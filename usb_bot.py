@@ -246,7 +246,6 @@ async def one(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         [InlineKeyboardButton("Скачать за последнее воскресенье", callback_data="download_last_sunday")],
         [InlineKeyboardButton("Скачать конкретный файл", callback_data=str(SIX))],
         [
-            InlineKeyboardButton("⬅️ Назад", callback_data=str(ONE)),
             InlineKeyboardButton("🚪 Выход", callback_data=str(TWO))
         ]
     ]
@@ -292,9 +291,10 @@ async def download_today(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     files = FilesData()
     files.get_files(path=MOUNT_PATH)
     today = datetime.date.today()
+    today_str = today.strftime('%Y%m%d')
     today_files = [
         f for f in files.file_list
-        if datetime.date.fromtimestamp(f.ctime) == today
+        if re.search(rf'{today_str}', f.name)
     ]
     return await send_files_group(update, context, today_files, "за сегодня")
 
@@ -311,33 +311,19 @@ async def download_last_sunday(update: Update, context: ContextTypes.DEFAULT_TYP
     files = FilesData()
     files.get_files(path=MOUNT_PATH)
     today = datetime.date.today()
-    # Если сегодня воскресенье — ищем и за сегодня, иначе за предыдущее
     if today.weekday() == 6:
         last_sunday = today
     else:
         last_sunday = today - datetime.timedelta(days=(today.weekday() + 1) % 7 or 7)
     last_sunday_str = last_sunday.strftime('%Y%m%d')
-    sunday_files = []
-    for f in files.file_list:
-        file_date = datetime.date.fromtimestamp(f.ctime)
-        # 1. По дате создания
-        if file_date == last_sunday:
-            sunday_files.append(f)
-            continue
-        # 2. По дате в имени файла (формат *YYYYMMDD*)
-        match = re.search(r'(\d{8})', f.name)
-        if match:
-            try:
-                name_date = datetime.datetime.strptime(match.group(1), '%Y%m%d').date()
-                if name_date == last_sunday:
-                    sunday_files.append(f)
-            except Exception:
-                pass
+    sunday_files = [
+        f for f in files.file_list
+        if re.search(rf'{last_sunday_str}', f.name)
+    ]
     if not sunday_files:
         await update.callback_query.answer(
             "Нет файлов за последнее воскресенье.", show_alert=False
         )
-        # Оставляем меню открытым
         return await one(update, context)
     return await send_files_group(update, context, sunday_files, "за последнее воскресенье")
 
@@ -409,7 +395,7 @@ async def send_files_group(update, context, file_objs, label):
                     "<b>Загрузка завершена!</b>\n"
                     "<i>Если архив был разбит на части, скачайте все части в одну папку.</i>\n\n"
                     "<b>\U0001F4C1 Инструкция по склейке и распаковке:</b>\n"
-                    "<pre>\n"
+                    "\n"
                     "<b>\U0001F427 Linux/macOS:</b>\n"
                     "<code>cat archive.zip.part* &gt; archive.zip\nunzip archive.zip</code>\n\n"
                     "<b>\U0001F5A5 Windows (PowerShell):</b>\n"
@@ -418,7 +404,7 @@ async def send_files_group(update, context, file_objs, label):
                     "<code>copy /b archive.zip.part* archive.zip</code>\n\n"
                     "<b>\U0001F40D Универсально (Python):</b>\n"
                     "<code>python -c \"with open('archive.zip','wb') as w: i=0\nwhile True:\n f='archive.zip.part'+str(i)\n if not __import__('os').path.exists(f): break\n w.write(open(f,'rb').read()); i+=1\"\nunzip archive.zip</code>\n"
-                    "</pre>"
+                    ""
                 ),
                 parse_mode=telegram.constants.ParseMode.HTML
             )
