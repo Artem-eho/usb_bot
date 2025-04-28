@@ -26,6 +26,7 @@ import tempfile
 import glob
 import time
 import asyncio
+import re
 
 dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
 if os.path.exists(dotenv_path):
@@ -248,11 +249,11 @@ async def one(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             parse_mode=telegram.constants.ParseMode.HTML,
             reply_markup=reply_markup
         )
-    except Exception as err:
-        await query.edit_message_text(
-            text=f"упс, что-то пошло не так: \n{err}",
-            reply_markup=reply_markup
-        )
+    except telegram.error.BadRequest as err:
+        if "Message is not modified" in str(err):
+            pass
+        else:
+            raise
     return START_ROUTES
 
 
@@ -300,12 +301,28 @@ async def download_last_sunday(update: Update, context: ContextTypes.DEFAULT_TYP
     files = FilesData()
     files.get_files(path=MOUNT_PATH)
     today = datetime.date.today()
-    # Находим последнее прошедшее воскресенье (не сегодня)
-    last_sunday = today - datetime.timedelta(days=(today.weekday() + 1) % 7 or 7)
-    sunday_files = [
-        f for f in files.file_list
-        if datetime.date.fromtimestamp(f.ctime) == last_sunday
-    ]
+    # Если сегодня воскресенье — ищем и за сегодня, иначе за предыдущее
+    if today.weekday() == 6:
+        last_sunday = today
+    else:
+        last_sunday = today - datetime.timedelta(days=(today.weekday() + 1) % 7 or 7)
+    last_sunday_str = last_sunday.strftime('%Y%m%d')
+    sunday_files = []
+    for f in files.file_list:
+        file_date = datetime.date.fromtimestamp(f.ctime)
+        # 1. По дате создания
+        if file_date == last_sunday:
+            sunday_files.append(f)
+            continue
+        # 2. По дате в имени файла (формат *YYYYMMDD*)
+        match = re.search(r'(\d{8})', f.name)
+        if match:
+            try:
+                name_date = datetime.datetime.strptime(match.group(1), '%Y%m%d').date()
+                if name_date == last_sunday:
+                    sunday_files.append(f)
+            except Exception:
+                pass
     if not sunday_files:
         await update.callback_query.answer(
             "Нет файлов за последнее воскресенье.", show_alert=True
@@ -331,29 +348,47 @@ async def send_files_group(update, context, file_objs, label):
             chat_id=update.effective_chat.id
         )
         try:
-            # Архивируем файлы
-            with tempfile.TemporaryDirectory() as tmpdir:
-                archive_path = os.path.join(tmpdir, f"{label.replace(' ', '_')}.zip")
-                archive_files([f.file for f in file_objs], archive_path)
-                archive_size = os.path.getsize(archive_path)
-                if archive_size <= MAX_FILE_SIZE:
-                    send_files = [archive_path]
-                else:
-                    parts = split_file(archive_path, MAX_FILE_SIZE)
-                    send_files = parts
-                for f in send_files:
-                    try:
-                        await context.bot.send_document(
-                            chat_id=update.effective_chat.id,
-                            document=open(f, "rb"),
-                            filename=os.path.basename(f)
-                        )
-                        log_download(update.effective_user, f)
-                    except Exception as err:
-                        await context.bot.send_message(
-                            chat_id=update.effective_chat.id,
-                            text=f"Ошибка при отправке файла {os.path.basename(f)}: {err}"
-                        )
+            for f in file_objs:
+                try:
+                    file_size = os.path.getsize(f.file)
+                    if file_size <= MAX_FILE_SIZE:
+                        # Отправляем как аудио (если mp3/wav) или как документ
+                        ext = os.path.splitext(f.file)[1].lower()
+                        if ext in ['.mp3', '.wav', '.ogg', '.m4a']:
+                            await context.bot.send_audio(
+                                chat_id=update.effective_chat.id,
+                                audio=open(f.file, "rb"),
+                                filename=os.path.basename(f.file)
+                            )
+                        else:
+                            await context.bot.send_document(
+                                chat_id=update.effective_chat.id,
+                                document=open(f.file, "rb"),
+                                filename=os.path.basename(f.file)
+                            )
+                        log_download(update.effective_user, f.file)
+                    else:
+                        # Архивируем и отправляем архив/части
+                        with tempfile.TemporaryDirectory() as tmpdir:
+                            archive_path = os.path.join(tmpdir, f"{os.path.basename(f.file)}.zip")
+                            archive_files([f.file], archive_path)
+                            archive_size = os.path.getsize(archive_path)
+                            if archive_size <= MAX_FILE_SIZE:
+                                send_files = [archive_path]
+                            else:
+                                send_files = split_file(archive_path, MAX_FILE_SIZE)
+                            for part in send_files:
+                                await context.bot.send_document(
+                                    chat_id=update.effective_chat.id,
+                                    document=open(part, "rb"),
+                                    filename=os.path.basename(part)
+                                )
+                                log_download(update.effective_user, part)
+                except Exception as err:
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text=f"Ошибка при отправке файла {os.path.basename(f.file)}: {err}"
+                    )
             await context.bot.delete_message(
                 chat_id=update.effective_chat.id,
                 message_id=loading_message.message_id
@@ -363,11 +398,17 @@ async def send_files_group(update, context, file_objs, label):
                 text="Загрузка завершена! Если архив был разбит на части, скачайте все части."
             )
         except Exception as err:
-            await context.bot.edit_message_text(
-                message_id=loading_message.message_id,
-                chat_id=loading_message.chat_id,
-                text=f"упс, что-то пошло не так: \n{err}"
-            )
+            try:
+                await context.bot.edit_message_text(
+                    message_id=loading_message.message_id,
+                    chat_id=loading_message.chat_id,
+                    text=f"упс, что-то пошло не так: \n{err}"
+                )
+            except telegram.error.BadRequest as berr:
+                if "Message is not modified" in str(berr):
+                    pass
+                else:
+                    raise
             logger.error(err)
             return START_ROUTES
         return START_ROUTES
@@ -450,10 +491,16 @@ async def six(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         [InlineKeyboardButton("Назад", callback_data=str(ONE))],
     ]
     reply_markup = InlineKeyboardMarkup(file_buttons)
-    await query.edit_message_text(
-        text="Выберите файл для скачивания:",
-        reply_markup=reply_markup
-    )
+    try:
+        await query.edit_message_text(
+            text="Выберите файл для скачивания:",
+            reply_markup=reply_markup
+        )
+    except telegram.error.BadRequest as err:
+        if "Message is not modified" in str(err):
+            pass
+        else:
+            raise
     return START_ROUTES
 
 
@@ -486,6 +533,13 @@ async def seven(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         # Оставляем меню открытым
         return await six(update, context)
     await update.callback_query.answer()
+    try:
+        await update.callback_query.edit_message_text(text="загружаю...")
+    except telegram.error.BadRequest as err:
+        if "Message is not modified" in str(err):
+            pass
+        else:
+            raise
     await update.callback_query.edit_message_text(text="загружаю...")
     try:
         await context.bot.send_document(
