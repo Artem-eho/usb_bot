@@ -161,3 +161,4 @@ media/
 .claude*
 claude*
 CLAUDE*
+.ssh/

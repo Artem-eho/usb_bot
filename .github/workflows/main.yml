@@ -68,10 +68,10 @@ jobs:
           username: ${{ secrets.USER }}
           key: ${{ secrets.SSH_KEY }}
           script: |
-            mkdir /home/usb_bot/
-            mkdir /home/usb_bot/USB
+            mkdir -p /home/usb_bot/USB
             cd /home/usb_bot/
-            sudo docker container stop usb_bot
+            sudo docker container stop usb_bot || true
+            sudo docker container rm usb_bot || true
             sudo docker pull artemeho/usb_bot:latest
             sudo docker run \
             --mount src="$(pwd)"/USB,target=/app/USB,type=bind \
