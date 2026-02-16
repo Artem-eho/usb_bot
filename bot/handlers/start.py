@@ -42,12 +42,12 @@ def make_greeting(user_first_name, files, mount_path, bot_start_time):
     uptime = datetime.datetime.now() - bot_start_time
     uptime_str = str(uptime).split('.')[0]
     return (
-        f"👋 Привет, {user_first_name}!\n\n"
-        f"📅 Сегодня: {today}\n"
-        f"📁 Файлов в папке: {len(files.file_list)} ({ext_info})\n"
-        f"💾 Свободно на диске: {free_gb: .2f} ГБ\n"
-        f"🕑 Аптайм бота: {uptime_str}\n\n"
-        f"🆕 Последний файл: \n{last_file_info}"
+        f"Привет, {user_first_name}!\n\n"
+        f"Сегодня: {today}\n"
+        f"Файлов в папке: {len(files.file_list)} ({ext_info})\n"
+        f"Свободно на диске: {free_gb: .2f} ГБ\n"
+        f"Аптайм бота: {uptime_str}\n\n"
+        f"Последний файл:\n{last_file_info}"
     )
 
 
@@ -56,7 +56,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     cfg: Config = context.bot_data['config']
     user = update.message.from_user
     if not is_user_allowed(user.id, cfg.filtered_users):
-        await update.message.reply_text("⛔️ Доступ запрещён.")
+        await update.message.reply_text("Доступ запрещён.")
         return ConversationHandler.END
 
     context.chat_data.start_message = update.message.id

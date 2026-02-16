@@ -26,7 +26,7 @@ async def one(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
     if not is_user_allowed(user.id, cfg.filtered_users):
         await update.callback_query.answer(
-            "⛔️ Доступ запрещён.", show_alert=False
+            "Доступ запрещён.", show_alert=False
         )
         return ConversationHandler.END
 

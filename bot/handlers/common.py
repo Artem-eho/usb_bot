@@ -18,13 +18,13 @@ async def end(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
     if not is_user_allowed(user.id, cfg.filtered_users):
         await update.callback_query.answer(
-            "⛔️ Доступ запрещён.", show_alert=False
+            "Доступ запрещён.", show_alert=False
         )
         return ConversationHandler.END
 
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text(text="👋")
+    await query.edit_message_text(text="До встречи!")
     await asyncio.sleep(1)
     await query.delete_message()
     await context.bot.delete_message(

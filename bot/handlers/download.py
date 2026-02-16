@@ -2,7 +2,6 @@ import os
 import re
 import logging
 import datetime
-import tempfile
 import asyncio
 
 import telegram
@@ -14,9 +13,9 @@ from bot.config import Config
 from bot.constants import (
     START_ROUTES, CB_FILE_LIST, CB_EXIT, CB_FILE_PREFIX,
     CB_SIX_NEXT_PAGE, CB_SIX_PREV_PAGE,
-    ARCHIVE_INSTRUCTIONS, AUDIO_EXTENSIONS,
+    AUDIO_EXTENSIONS,
 )
-from bot.core import FilesData, archive_files, split_file
+from bot.core import FilesData
 from bot.security import is_user_allowed, is_safe_path, is_file_accessible
 from bot.utils import error_handler, log_download
 
@@ -26,82 +25,80 @@ logger = logging.getLogger(__name__)
 async def send_file_to_user(context, chat_id, user, file_obj, cfg: Config):
     """Unified file sending logic.
 
-    - Small files (<=MAX_FILE_SIZE): send directly via Telegram
-    - Large files with FILE_SERVER_PUBLIC_URL: generate HTTP download link
-    - Large files without FILE_SERVER_PUBLIC_URL (fallback): archive + split
-
-    Returns True if archive parts were sent (for instructions message).
+    - Small files (<=MAX_FILE_SIZE): send directly via Telegram.
+    - If Telegram send fails or file is too large: generate HTTP download link.
+    - If HTTP server is not configured: report error.
     """
     file_path = file_obj.file
     file_size = file_obj.size if hasattr(file_obj, 'size') else os.path.getsize(file_path)
 
     if file_size <= cfg.max_file_size:
-        ext = os.path.splitext(file_path)[1].lower()
-        if ext in AUDIO_EXTENSIONS:
-            with open(file_path, "rb") as f:
-                await context.bot.send_audio(
-                    chat_id=chat_id,
-                    audio=f,
-                    filename=os.path.basename(file_path)
-                )
-        else:
-            with open(file_path, "rb") as f:
-                await context.bot.send_document(
-                    chat_id=chat_id,
-                    document=f,
-                    filename=os.path.basename(file_path)
-                )
-        log_download(user, file_path)
-        return False
+        try:
+            ext = os.path.splitext(file_path)[1].lower()
+            if ext in AUDIO_EXTENSIONS:
+                with open(file_path, "rb") as f:
+                    await context.bot.send_audio(
+                        chat_id=chat_id,
+                        audio=f,
+                        filename=os.path.basename(file_path)
+                    )
+            else:
+                with open(file_path, "rb") as f:
+                    await context.bot.send_document(
+                        chat_id=chat_id,
+                        document=f,
+                        filename=os.path.basename(file_path)
+                    )
+            log_download(user, file_path)
+            return
+        except Exception as exc:
+            logger.warning(
+                "Telegram send failed for %s: %s", file_path, exc
+            )
 
-    # Large file — try HTTP server first
+    # Large file or Telegram send failed — generate HTTP download link
     token_store = context.bot_data.get('token_store')
     public_url = cfg.file_server_public_url
 
-    if token_store and public_url:
-        token = token_store.create(file_path, user.id)
-        download_url = f"{public_url.rstrip('/')}/download/{token}"
+    if not token_store or not public_url:
         filename = os.path.basename(file_path)
-        file_size_h = h_size_fmt(file_size)
-        ttl_minutes = cfg.file_server_token_ttl // 60
-
         await context.bot.send_message(
             chat_id=chat_id,
             text=(
-                f"📥 Файл слишком большой для Telegram.\n"
-                f"Скачайте по ссылке: "
-                f"<a href=\"{download_url}\">{filename} ({file_size_h})</a>\n"
-                f"⏰ Ссылка действительна {ttl_minutes} мин."
+                f"Не удалось отправить файл {filename}.\n"
+                f"HTTP-сервер для скачивания не настроен."
             ),
-            parse_mode=telegram.constants.ParseMode.HTML,
-            disable_web_page_preview=True,
         )
-        log_download(user, file_path)
-        return False
+        return
 
-    # Fallback: archive + split
-    with tempfile.TemporaryDirectory() as tmpdir:
-        archive_path = os.path.join(
-            tmpdir, f"{os.path.basename(file_path)}.zip"
+    token = token_store.create(file_path, user.id)
+    base_url = f"{public_url.rstrip('/')}:{cfg.file_server_port}"
+    download_url = f"{base_url}/download/{token}"
+    filename = os.path.basename(file_path)
+    file_size_h = h_size_fmt(file_size)
+    ttl_minutes = cfg.file_server_token_ttl // 60
+
+    if file_size <= cfg.max_file_size:
+        text = (
+            f"Не удалось выгрузить файл, скачайте его самостоятельно:\n"
+            f"<a href=\"{download_url}\">{filename} ({file_size_h})</a>\n"
+            f"Ссылка действительна {ttl_minutes} мин."
         )
-        archive_files([file_path], archive_path)
-        archive_size = os.path.getsize(archive_path)
+    else:
+        text = (
+            f"Файл слишком большой для Telegram.\n"
+            f"Скачайте по ссылке: "
+            f"<a href=\"{download_url}\">{filename} ({file_size_h})</a>\n"
+            f"Ссылка действительна {ttl_minutes} мин."
+        )
 
-        if archive_size <= cfg.max_file_size:
-            send_files = [archive_path]
-        else:
-            send_files = split_file(archive_path, cfg.max_file_size)
-
-        for part in send_files:
-            with open(part, "rb") as f:
-                await context.bot.send_document(
-                    chat_id=chat_id,
-                    document=f,
-                    filename=os.path.basename(part)
-                )
-            log_download(user, part)
-
-    return True  # archive was sent
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=text,
+        parse_mode=telegram.constants.ParseMode.HTML,
+        disable_web_page_preview=True,
+    )
+    log_download(user, file_path)
 
 
 async def send_files_group(update, context, file_objs, label):
@@ -126,15 +123,12 @@ async def send_files_group(update, context, file_objs, label):
             chat_id=update.effective_chat.id
         )
         try:
-            archive_sent = False
             for f in file_objs:
                 try:
-                    was_archive = await send_file_to_user(
+                    await send_file_to_user(
                         context, update.effective_chat.id,
                         update.effective_user, f, cfg
                     )
-                    if was_archive:
-                        archive_sent = True
                 except Exception as err:
                     await context.bot.send_message(
                         chat_id=update.effective_chat.id,
@@ -149,17 +143,10 @@ async def send_files_group(update, context, file_objs, label):
                 message_id=loading_message.message_id
             )
 
-            if archive_sent:
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=ARCHIVE_INSTRUCTIONS,
-                    parse_mode=telegram.constants.ParseMode.HTML
-                )
-            else:
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text="Загрузка завершена!"
-                )
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="Загрузка завершена!"
+            )
         except Exception as err:
             try:
                 await context.bot.edit_message_text(
@@ -182,7 +169,7 @@ async def three(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
     if not is_user_allowed(user.id, cfg.filtered_users):
         await update.callback_query.answer(
-            "⛔️ Доступ запрещён.", show_alert=False
+            "Доступ запрещён.", show_alert=False
         )
         return ConversationHandler.END
     files = FilesData()
@@ -199,7 +186,7 @@ async def download_today(
     user = update.effective_user
     if not is_user_allowed(user.id, cfg.filtered_users):
         await update.callback_query.answer(
-            "⛔️ Доступ запрещён.", show_alert=False
+            "Доступ запрещён.", show_alert=False
         )
         return ConversationHandler.END
     files = FilesData()
@@ -221,7 +208,7 @@ async def download_last_sunday(
     user = update.effective_user
     if not is_user_allowed(user.id, cfg.filtered_users):
         await update.callback_query.answer(
-            "⛔️ Доступ запрещён.", show_alert=False
+            "Доступ запрещён.", show_alert=False
         )
         return ConversationHandler.END
     files = FilesData()
@@ -256,7 +243,7 @@ async def six(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
     if not is_user_allowed(user.id, cfg.filtered_users):
         await update.callback_query.answer(
-            "⛔️ Доступ запрещён.", show_alert=False
+            "Доступ запрещён.", show_alert=False
         )
         return ConversationHandler.END
 
@@ -376,7 +363,7 @@ async def seven(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
     if not is_user_allowed(user.id, cfg.filtered_users):
         await update.callback_query.answer(
-            "⛔️ Доступ запрещён.", show_alert=False
+            "Доступ запрещён.", show_alert=False
         )
         return ConversationHandler.END
 
@@ -401,24 +388,17 @@ async def seven(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         text="загружаю..."
     )
     try:
-        was_archive = await send_file_to_user(
+        await send_file_to_user(
             context, update.effective_chat.id, user, file_obj, cfg
         )
         await context.bot.delete_message(
             chat_id=update.effective_chat.id,
             message_id=loading_message.message_id
         )
-        if was_archive:
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text=ARCHIVE_INSTRUCTIONS,
-                parse_mode=telegram.constants.ParseMode.HTML
-            )
-        else:
-            await context.bot.send_message(
-                chat_id=update.effective_chat.id,
-                text="Загрузка завершена!"
-            )
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="Загрузка завершена!"
+        )
     except Exception as err:
         logger.exception(
             "Ошибка при отправке файла: user_id=%s, file=%s",

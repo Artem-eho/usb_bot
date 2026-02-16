@@ -474,8 +474,13 @@ class TestDownloadSpecificFile(unittest.IsolatedAsyncioTestCase):
         os.remove(file_path)
 
     async def test_download_specific_file_large(self):
+        """Large file should generate an HTTP download link."""
         from bot.handlers.download import seven
-        cfg = _make_config()
+        from bot.server.tokens import TokenStore
+        token_store = TokenStore(ttl=3600)
+        cfg = _make_config(
+            file_server_public_url='http://localhost:8080'
+        )
         MAX_FILE_SIZE = cfg.max_file_size
         with tempfile.NamedTemporaryFile(delete=False) as tf:
             tf.write(b'0' * (MAX_FILE_SIZE + 1024))
@@ -502,28 +507,231 @@ class TestDownloadSpecificFile(unittest.IsolatedAsyncioTestCase):
         context.bot_data = {
             'config': cfg,
             'archive_semaphore': asyncio.Semaphore(20),
+            'token_store': token_store,
         }
-        fake_archive = file_path + '.zip'
-        fake_part = fake_archive + '.part0'
-        with open(fake_archive, 'wb') as fa:
-            fa.write(b'1' * (MAX_FILE_SIZE + 1))
-        with open(fake_part, 'wb') as fp:
-            fp.write(b'2' * (MAX_FILE_SIZE // 2))
         with patch('bot.handlers.download.FilesData', return_value=files_data), \
              patch('bot.handlers.download.is_safe_path', return_value=True), \
-             patch('bot.handlers.download.is_file_accessible', return_value=True), \
-             patch('bot.handlers.download.archive_files', side_effect=lambda files, archive_path: os.rename(fake_archive, archive_path)), \
-             patch('bot.handlers.download.split_file', return_value=[fake_part]):
+             patch('bot.handlers.download.is_file_accessible', return_value=True):
             await seven(update, context)
-        context.bot.send_document.assert_awaited()
         calls = context.bot.send_message.await_args_list
         assert any(
-            'Инструкция по склейке' in str(call.kwargs.get('text', ''))
+            'Скачайте по ссылке' in str(call.kwargs.get('text', ''))
             for call in calls
         )
         os.remove(file_path)
-        if os.path.exists(fake_part):
-            os.remove(fake_part)
+
+
+class TestSendFileToUser(unittest.IsolatedAsyncioTestCase):
+    """Tests for send_file_to_user: Telegram send, fallback to link, error handling."""
+
+    def setUp(self):
+        from bot.server.tokens import TokenStore
+        self.token_store = TokenStore(ttl=3600)
+        self.cfg = _make_config(
+            file_server_public_url='http://myserver.com',
+            file_server_port=8080,
+        )
+        self.context = MagicMock()
+        self.context.bot.send_document = AsyncMock()
+        self.context.bot.send_audio = AsyncMock()
+        self.context.bot.send_message = AsyncMock()
+        self.context.bot_data = {
+            'config': self.cfg,
+            'token_store': self.token_store,
+        }
+        self.user = MagicMock(id=42)
+        self.chat_id = 123
+
+    def _make_file_obj(self, path, size):
+        obj = MagicMock()
+        obj.file = path
+        obj.size = size
+        obj.name = os.path.basename(path)
+        return obj
+
+    async def test_small_file_sent_via_telegram(self):
+        """Small file should be sent directly via Telegram."""
+        from bot.handlers.download import send_file_to_user
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.txt') as tf:
+            tf.write(b'hello')
+            tf.flush()
+            file_path = tf.name
+        try:
+            file_obj = self._make_file_obj(file_path, 5)
+            await send_file_to_user(
+                self.context, self.chat_id, self.user, file_obj, self.cfg
+            )
+            self.context.bot.send_document.assert_awaited_once()
+            self.context.bot.send_message.assert_not_awaited()
+        finally:
+            os.remove(file_path)
+
+    async def test_small_audio_sent_via_telegram(self):
+        """Small audio file should be sent via send_audio."""
+        from bot.handlers.download import send_file_to_user
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as tf:
+            tf.write(b'fake audio')
+            tf.flush()
+            file_path = tf.name
+        try:
+            file_obj = self._make_file_obj(file_path, 10)
+            await send_file_to_user(
+                self.context, self.chat_id, self.user, file_obj, self.cfg
+            )
+            self.context.bot.send_audio.assert_awaited_once()
+            self.context.bot.send_document.assert_not_awaited()
+        finally:
+            os.remove(file_path)
+
+    async def test_small_file_telegram_fail_fallback_to_link(self):
+        """When Telegram send fails for a small file, should fallback to download link."""
+        from bot.handlers.download import send_file_to_user
+        self.context.bot.send_document = AsyncMock(
+            side_effect=Exception("Telegram error")
+        )
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.txt') as tf:
+            tf.write(b'hello')
+            tf.flush()
+            file_path = tf.name
+        try:
+            file_obj = self._make_file_obj(file_path, 5)
+            await send_file_to_user(
+                self.context, self.chat_id, self.user, file_obj, self.cfg
+            )
+            self.context.bot.send_message.assert_awaited_once()
+            msg_text = self.context.bot.send_message.call_args.kwargs['text']
+            self.assertIn('Не удалось выгрузить файл', msg_text)
+            self.assertIn('/download/', msg_text)
+        finally:
+            os.remove(file_path)
+
+    async def test_large_file_generates_link(self):
+        """Large file should generate an HTTP download link."""
+        from bot.handlers.download import send_file_to_user
+        large_size = self.cfg.max_file_size + 1024
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.bin') as tf:
+            tf.write(b'0' * large_size)
+            tf.flush()
+            file_path = tf.name
+        try:
+            file_obj = self._make_file_obj(file_path, large_size)
+            await send_file_to_user(
+                self.context, self.chat_id, self.user, file_obj, self.cfg
+            )
+            self.context.bot.send_document.assert_not_awaited()
+            self.context.bot.send_message.assert_awaited_once()
+            msg_text = self.context.bot.send_message.call_args.kwargs['text']
+            self.assertIn('Скачайте по ссылке', msg_text)
+            self.assertIn('/download/', msg_text)
+        finally:
+            os.remove(file_path)
+
+    async def test_download_url_includes_port(self):
+        """Download URL should include port from config."""
+        from bot.handlers.download import send_file_to_user
+        cfg = _make_config(
+            file_server_public_url='http://example.com',
+            file_server_port=9090,
+        )
+        self.context.bot_data['config'] = cfg
+        large_size = cfg.max_file_size + 1
+        with tempfile.NamedTemporaryFile(delete=False) as tf:
+            tf.write(b'0' * large_size)
+            tf.flush()
+            file_path = tf.name
+        try:
+            file_obj = self._make_file_obj(file_path, large_size)
+            await send_file_to_user(
+                self.context, self.chat_id, self.user, file_obj, cfg
+            )
+            msg_text = self.context.bot.send_message.call_args.kwargs['text']
+            self.assertIn('http://example.com:9090/download/', msg_text)
+        finally:
+            os.remove(file_path)
+
+    async def test_no_http_server_shows_error(self):
+        """When HTTP server is not configured, should show error message."""
+        from bot.handlers.download import send_file_to_user
+        cfg = _make_config(file_server_public_url='')
+        self.context.bot_data.pop('token_store', None)
+        large_size = cfg.max_file_size + 1
+        with tempfile.NamedTemporaryFile(delete=False) as tf:
+            tf.write(b'0' * large_size)
+            tf.flush()
+            file_path = tf.name
+        try:
+            file_obj = self._make_file_obj(file_path, large_size)
+            await send_file_to_user(
+                self.context, self.chat_id, self.user, file_obj, cfg
+            )
+            msg_text = self.context.bot.send_message.call_args.kwargs['text']
+            self.assertIn('HTTP-сервер для скачивания не настроен', msg_text)
+        finally:
+            os.remove(file_path)
+
+    async def test_no_http_server_telegram_fail_shows_error(self):
+        """Small file fails + no HTTP server = error message."""
+        from bot.handlers.download import send_file_to_user
+        cfg = _make_config(file_server_public_url='')
+        self.context.bot_data.pop('token_store', None)
+        self.context.bot.send_document = AsyncMock(
+            side_effect=Exception("Telegram error")
+        )
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.txt') as tf:
+            tf.write(b'data')
+            tf.flush()
+            file_path = tf.name
+        try:
+            file_obj = self._make_file_obj(file_path, 4)
+            await send_file_to_user(
+                self.context, self.chat_id, self.user, file_obj, cfg
+            )
+            msg_text = self.context.bot.send_message.call_args.kwargs['text']
+            self.assertIn('Не удалось отправить файл', msg_text)
+            self.assertIn('HTTP-сервер для скачивания не настроен', msg_text)
+        finally:
+            os.remove(file_path)
+
+    async def test_link_ttl_shown_in_minutes(self):
+        """Download link message should show TTL in minutes."""
+        from bot.handlers.download import send_file_to_user
+        cfg = _make_config(
+            file_server_public_url='http://host.com',
+            file_server_token_ttl=7200,
+        )
+        self.context.bot_data['config'] = cfg
+        large_size = cfg.max_file_size + 1
+        with tempfile.NamedTemporaryFile(delete=False) as tf:
+            tf.write(b'0' * large_size)
+            tf.flush()
+            file_path = tf.name
+        try:
+            file_obj = self._make_file_obj(file_path, large_size)
+            await send_file_to_user(
+                self.context, self.chat_id, self.user, file_obj, cfg
+            )
+            msg_text = self.context.bot.send_message.call_args.kwargs['text']
+            self.assertIn('120 мин', msg_text)
+        finally:
+            os.remove(file_path)
+
+    async def test_token_created_in_store(self):
+        """A token should be created in the token store for large files."""
+        from bot.handlers.download import send_file_to_user
+        large_size = self.cfg.max_file_size + 1
+        self.assertEqual(self.token_store.active_count, 0)
+        with tempfile.NamedTemporaryFile(delete=False) as tf:
+            tf.write(b'0' * large_size)
+            tf.flush()
+            file_path = tf.name
+        try:
+            file_obj = self._make_file_obj(file_path, large_size)
+            await send_file_to_user(
+                self.context, self.chat_id, self.user, file_obj, self.cfg
+            )
+            self.assertEqual(self.token_store.active_count, 1)
+        finally:
+            os.remove(file_path)
 
 
 if __name__ == '__main__':
