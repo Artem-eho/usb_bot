@@ -48,6 +48,6 @@ def load_config() -> Config:
         telegram_chat_id=os.getenv('TELEGRAM_CHAT_ID', ''),
         filtered_users=filtered_users,
         file_server_port=int(os.getenv('FILE_SERVER_PORT', '8080')),
-        file_server_public_url=os.getenv('FILE_SERVER_PUBLIC_URL', ''),
+        file_server_public_url=os.getenv('FILE_SERVER_PUBLIC_URL', '').strip('\'" '),
         file_server_token_ttl=int(os.getenv('FILE_SERVER_TOKEN_TTL', '3600')),
     )
