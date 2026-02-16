@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Generate pixel art avatar for the bot menu."""
 
+import os
 from PIL import Image
 
 PIXEL = 16  # bigger blocks = more visible pixel texture
@@ -181,7 +182,7 @@ put(CX - 1, 17, (20, 28, 55))
 put(CX, 17, (20, 28, 55))
 put(CX + 1, 17, (20, 28, 55))
 
-output_path = '/Users/artemkovalenko/Dev/usb-bot/usb_bot/bot_avatar.png'
+output_path = os.path.join(os.path.dirname(__file__), 'bot', 'assets', 'bot_avatar.png')
 img.save(output_path)
 print(f'Saved to {output_path}')
 print(f'Size: {SIZE}x{SIZE}px')

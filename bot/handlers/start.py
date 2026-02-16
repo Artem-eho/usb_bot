@@ -47,10 +47,11 @@ def make_greeting(user_first_name, files, mount_path, bot_start_time, cfg):
     uptime_str = str(uptime).split('.')[0]
 
     if cfg.file_server_public_url:
-        server_status = (
-            f"HTTP-сервер: работает "
-            f"({cfg.file_server_public_url}:{cfg.file_server_port})"
-        )
+        if cfg.file_server_port in (80, 443):
+            server_url = cfg.file_server_public_url
+        else:
+            server_url = f"{cfg.file_server_public_url}:{cfg.file_server_port}"
+        server_status = f"HTTP-сервер: работает ({server_url})"
     else:
         server_status = "HTTP-сервер: не настроен"
 

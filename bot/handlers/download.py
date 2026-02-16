@@ -72,7 +72,11 @@ async def send_file_to_user(context, chat_id, user, file_obj, cfg: Config):
         return
 
     token = token_store.create(file_path, user.id)
-    base_url = f"{public_url.rstrip('/')}:{cfg.file_server_port}"
+    stripped_url = public_url.rstrip('/')
+    if cfg.file_server_port in (80, 443):
+        base_url = stripped_url
+    else:
+        base_url = f"{stripped_url}:{cfg.file_server_port}"
     download_url = f"{base_url}/download/{token}"
     filename = os.path.basename(file_path)
     file_size_h = h_size_fmt(file_size)
