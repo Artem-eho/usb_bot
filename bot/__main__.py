@@ -30,7 +30,6 @@ from bot.handlers.download import (
 from bot.handlers.common import end
 from bot.server.tokens import TokenStore
 from bot.server.app import create_app, run_server, cleanup_tokens_periodically
-from bot.utils import periodic_clean_archives
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -58,15 +57,8 @@ async def main():
     else:
         logger.info(
             "HTTP file server disabled "
-            "(FILE_SERVER_PUBLIC_URL not set, using archive+split fallback)"
+            "(FILE_SERVER_PUBLIC_URL not set, large files cannot be sent)"
         )
-
-    # Background archive cleanup
-    asyncio.create_task(
-        periodic_clean_archives(
-            cfg.mount_path, max_age_seconds=3600, interval=1800
-        )
-    )
 
     # Build PTB application
     context_types = ContextTypes(context=CustomContext, chat_data=ChatData)

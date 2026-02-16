@@ -24,11 +24,20 @@ async def end(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     query = update.callback_query
     await query.answer()
-    await edit_or_send(query, context, text="До встречи!")
+    sent = await edit_or_send(query, context, text="До встречи!")
     await asyncio.sleep(1)
-    await query.delete_message()
-    await context.bot.delete_message(
-        chat_id=update.effective_chat.id,
-        message_id=context.get_start_message()
-    )
+    try:
+        await context.bot.delete_message(
+            chat_id=update.effective_chat.id,
+            message_id=sent.message_id
+        )
+    except Exception:
+        pass
+    try:
+        await context.bot.delete_message(
+            chat_id=update.effective_chat.id,
+            message_id=context.get_start_message()
+        )
+    except Exception:
+        pass
     return ConversationHandler.END

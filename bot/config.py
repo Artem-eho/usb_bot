@@ -9,7 +9,7 @@ class Config:
     mount_path: str
     telegram_chat_id: str = ""
     filtered_users: list = field(default_factory=list)
-    file_server_port: int = 8080
+    file_server_port: int = 8081
     file_server_public_url: str = ""
     file_server_token_ttl: int = 3600
     max_file_size: int = 48 * 1024 * 1024
@@ -47,7 +47,7 @@ def load_config() -> Config:
         mount_path=mount_path,
         telegram_chat_id=os.getenv('TELEGRAM_CHAT_ID', ''),
         filtered_users=filtered_users,
-        file_server_port=int(os.getenv('FILE_SERVER_PORT', '8080')),
+        file_server_port=int(os.getenv('FILE_SERVER_PORT', '8081')),
         file_server_public_url=os.getenv('FILE_SERVER_PUBLIC_URL', '').strip('\'" '),
         file_server_token_ttl=int(os.getenv('FILE_SERVER_TOKEN_TTL', '3600')),
     )

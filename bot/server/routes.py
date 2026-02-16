@@ -1,5 +1,6 @@
 import os
 import logging
+from urllib.parse import quote
 from aiohttp import web
 
 from bot.security import is_safe_path
@@ -34,8 +35,10 @@ async def download_handler(request: web.Request) -> web.Response:
 
     filename = os.path.basename(file_path)
     response = web.FileResponse(file_path)
+    encoded_filename = quote(filename)
     response.headers['Content-Disposition'] = (
-        f'attachment; filename="{filename}"'
+        f"attachment; filename=\"{encoded_filename}\"; "
+        f"filename*=UTF-8''{encoded_filename}"
     )
     return response
 

@@ -11,7 +11,7 @@ import asyncio
 # Ensure project root is on path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from bot.core import FilesData, archive_file, split_file, archive_files, build_table
+from bot.core import FilesData, archive_file, split_file, build_table
 from bot.security import is_user_allowed, is_safe_path, is_file_accessible
 from bot.handlers.start import make_greeting
 from bot.utils import log_download, clean_old_archives
@@ -29,7 +29,7 @@ def _make_config(**overrides):
         six_files_page_size=8,
         menu_lifetime_seconds=15 * 60,
         archive_semaphore_limit=20,
-        file_server_port=8080,
+        file_server_port=8081,
         file_server_public_url='',
         file_server_token_ttl=3600,
     )
@@ -116,7 +116,7 @@ class TestGreeting(unittest.TestCase):
         ]
         cfg = _make_config(
             file_server_public_url='http://myhost.com',
-            file_server_port=8080,
+            file_server_port=8081,
         )
         msg = make_greeting(
             'Тест', files, '/tmp',
@@ -128,7 +128,7 @@ class TestGreeting(unittest.TestCase):
         self.assertIn('10.00 ГБ', msg)
         self.assertIn('Аптайм бота: 1:00:00', msg)
         self.assertIn('HTTP-сервер: работает', msg)
-        self.assertIn('http://myhost.com:8080', msg)
+        self.assertIn('http://myhost.com', msg)
 
     @patch('psutil.disk_usage')
     def test_make_greeting_no_server(self, mock_disk):
@@ -307,8 +307,11 @@ class TestErrorHandlerUX(unittest.IsolatedAsyncioTestCase):
             'config': _make_config(),
             'archive_semaphore': asyncio.Semaphore(20),
         }
+        context.bot.send_message = AsyncMock()
+        context.bot.delete_message = AsyncMock()
         update.effective_user = MagicMock(id=1)
         update.callback_query = AsyncMock()
+        update.callback_query.message.photo = []
         update.callback_query.data = 'file_to_download:/not/exist.mp3'
         with patch('bot.handlers.download.is_safe_path', return_value=False), \
              patch('bot.handlers.download.is_file_accessible', return_value=False):
@@ -551,7 +554,7 @@ class TestSendFileToUser(unittest.IsolatedAsyncioTestCase):
         self.token_store = TokenStore(ttl=3600)
         self.cfg = _make_config(
             file_server_public_url='http://myserver.com',
-            file_server_port=8080,
+            file_server_port=8081,
         )
         self.context = MagicMock()
         self.context.bot.send_document = AsyncMock()
@@ -667,7 +670,7 @@ class TestSendFileToUser(unittest.IsolatedAsyncioTestCase):
                 self.context, self.chat_id, self.user, file_obj, cfg
             )
             msg_text = self.context.bot.send_message.call_args.kwargs['text']
-            self.assertIn('http://example.com:9090/download/', msg_text)
+            self.assertIn('http://example.com/download/', msg_text)
         finally:
             os.remove(file_path)
 
