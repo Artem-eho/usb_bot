@@ -158,3 +158,6 @@ media/
 
 # tmp files
 *tmp*
+.claude*
+claude*
+CLAUDE*

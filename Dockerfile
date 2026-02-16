@@ -4,4 +4,5 @@ COPY requirements.txt .
 RUN pip install --upgrade pip
 RUN pip install -r requirements.txt --no-cache-dir
 COPY . .
-CMD ["python3", "usb_bot.py"]
+EXPOSE 8080
+CMD ["python3", "-m", "bot"]
