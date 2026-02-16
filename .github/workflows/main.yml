@@ -77,7 +77,6 @@ jobs:
             --mount src="$(pwd)"/USB,target=/app/USB,type=bind \
             --detach \
             --rm \
-            --network wrshp_backend_wrshp_network \
             -p 80:8080 \
             --env-file .env \
             --name usb_bot artemeho/usb_bot

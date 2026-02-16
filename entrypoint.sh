@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 set -e
 
 # Start nginx in the background
@@ -10,7 +10,7 @@ python3 -m bot &
 BOT_PID=$!
 
 # Handle signals — shut down both processes gracefully
-trap "kill $BOT_PID $NGINX_PID; wait $BOT_PID $NGINX_PID" SIGINT SIGTERM
+trap "kill $BOT_PID $NGINX_PID 2>/dev/null; wait $BOT_PID $NGINX_PID 2>/dev/null" SIGINT SIGTERM
 
 # Wait for either process to exit
 wait -n $BOT_PID $NGINX_PID
