@@ -4,5 +4,5 @@ COPY requirements.txt .
 RUN pip install --upgrade pip
 RUN pip install -r requirements.txt --no-cache-dir
 COPY . .
-EXPOSE 8080
+EXPOSE 8080 8081
 CMD ["python3", "-m", "bot"]

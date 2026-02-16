@@ -70,6 +70,7 @@ jobs:
           script: |
             mkdir -p /home/usb_bot/USB
             cd /home/usb_bot/
+            PORT=$(grep -oP 'FILE_SERVER_PORT=\K[0-9]+' .env || echo 8080)
             sudo docker container stop usb_bot || true
             sudo docker container rm usb_bot || true
             sudo docker pull artemeho/usb_bot:latest
@@ -77,7 +78,7 @@ jobs:
             --mount src="$(pwd)"/USB,target=/app/USB,type=bind \
             --detach \
             --rm \
-            -p 8080:8080 \
+            -p ${PORT}:${PORT} \
             --env-file .env \
             --name usb_bot artemeho/usb_bot
 
