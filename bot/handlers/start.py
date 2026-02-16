@@ -16,9 +16,13 @@ from bot.utils import error_handler, schedule_menu_deletion
 
 logger = logging.getLogger(__name__)
 
-AVATAR_PATH = os.path.join(
-    os.path.dirname(__file__), '..', 'assets', 'avatar.png'
-)
+ASSETS_DIR = os.path.join(os.path.dirname(__file__), '..', 'assets')
+AVATAR_PATH = None
+for _ext in ('jpg', 'jpeg', 'png'):
+    _candidate = os.path.join(ASSETS_DIR, f'avatar.{_ext}')
+    if os.path.exists(_candidate):
+        AVATAR_PATH = _candidate
+        break
 
 
 def make_greeting(user_first_name, files, mount_path, bot_start_time, cfg):
@@ -87,7 +91,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         [InlineKeyboardButton("🚪 Выход", callback_data=CB_EXIT)],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    if os.path.exists(AVATAR_PATH):
+    if AVATAR_PATH and os.path.exists(AVATAR_PATH):
         with open(AVATAR_PATH, 'rb') as avatar:
             sent_message = await update.message.reply_photo(
                 photo=avatar,
