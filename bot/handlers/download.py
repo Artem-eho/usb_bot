@@ -17,7 +17,7 @@ from bot.constants import (
 )
 from bot.core import FilesData
 from bot.security import is_user_allowed, is_safe_path, is_file_accessible
-from bot.utils import error_handler, log_download
+from bot.utils import error_handler, log_download, edit_or_send
 
 logger = logging.getLogger(__name__)
 
@@ -322,12 +322,13 @@ async def six(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     page_number = page + 1 if total_pages > 0 else 1
 
     try:
-        await query.edit_message_text(
+        await edit_or_send(
+            query, context,
             text=(
                 f"Выберите файл для скачивания:\n"
                 f"Страница {page_number} из {total_pages}"
             ),
-            reply_markup=reply_markup
+            reply_markup=reply_markup,
         )
     except telegram.error.BadRequest as err:
         if "Message is not modified" not in str(err):

@@ -76,6 +76,23 @@ async def periodic_clean_archives(folder, max_age_seconds=3600, interval=1800):
         await asyncio.sleep(interval)
 
 
+async def edit_or_send(query, context, text, reply_markup=None, parse_mode=None):
+    """Edit message text, or delete photo and send new message if needed."""
+    if query.message.photo:
+        await query.message.delete()
+        return await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text=text,
+            reply_markup=reply_markup,
+            parse_mode=parse_mode,
+        )
+    return await query.edit_message_text(
+        text=text,
+        reply_markup=reply_markup,
+        parse_mode=parse_mode,
+    )
+
+
 async def schedule_menu_deletion(context, chat_id, message_id, delay):
     await asyncio.sleep(delay)
     try:

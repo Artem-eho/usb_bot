@@ -332,6 +332,7 @@ class TestChurchEmojiForSundayEvening(unittest.IsolatedAsyncioTestCase):
         update.callback_query = AsyncMock()
         update.callback_query.answer = AsyncMock()
         update.callback_query.edit_message_text = AsyncMock()
+        update.callback_query.message.photo = []
         today = datetime.date.today()
         if today.weekday() != 6:
             last_sunday = today - datetime.timedelta(
@@ -380,6 +381,7 @@ class TestChurchAndArchiveEmoji(unittest.IsolatedAsyncioTestCase):
         update.callback_query = AsyncMock()
         update.callback_query.answer = AsyncMock()
         update.callback_query.edit_message_text = AsyncMock()
+        update.callback_query.message.photo = []
         today = datetime.date.today()
         if today.weekday() != 6:
             last_sunday = today - datetime.timedelta(

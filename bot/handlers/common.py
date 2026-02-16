@@ -5,7 +5,7 @@ from telegram import Update
 from telegram.ext import ContextTypes, ConversationHandler
 
 from bot.security import is_user_allowed
-from bot.utils import error_handler
+from bot.utils import error_handler, edit_or_send
 from bot.config import Config
 
 logger = logging.getLogger(__name__)
@@ -24,7 +24,7 @@ async def end(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text(text="До встречи!")
+    await edit_or_send(query, context, text="До встречи!")
     await asyncio.sleep(1)
     await query.delete_message()
     await context.bot.delete_message(

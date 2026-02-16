@@ -13,7 +13,7 @@ from bot.constants import (
 )
 from bot.core import FilesData, build_table
 from bot.security import is_user_allowed
-from bot.utils import error_handler, schedule_menu_deletion
+from bot.utils import error_handler, schedule_menu_deletion, edit_or_send
 from telegram.ext import ConversationHandler
 
 logger = logging.getLogger(__name__)
@@ -84,10 +84,11 @@ async def one(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     try:
-        sent = await query.edit_message_text(
+        sent = await edit_or_send(
+            query, context,
             text=message,
             parse_mode=telegram.constants.ParseMode.HTML,
-            reply_markup=reply_markup
+            reply_markup=reply_markup,
         )
         asyncio.create_task(schedule_menu_deletion(
             context, sent.chat_id, sent.message_id,
