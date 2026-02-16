@@ -114,14 +114,34 @@ class TestGreeting(unittest.TestCase):
             MagicMock(name='a.txt', ctime=now - 100),
             MagicMock(name='b.mp3', ctime=now)
         ]
+        cfg = _make_config(
+            file_server_public_url='http://myhost.com',
+            file_server_port=8080,
+        )
         msg = make_greeting(
             'Тест', files, '/tmp',
-            datetime.datetime.now() - datetime.timedelta(hours=1)
+            datetime.datetime.now() - datetime.timedelta(hours=1),
+            cfg
         )
         self.assertIn('Привет, Тест!', msg)
         self.assertIn('Файлов в папке: 2', msg)
         self.assertIn('10.00 ГБ', msg)
         self.assertIn('Аптайм бота: 1:00:00', msg)
+        self.assertIn('HTTP-сервер: работает', msg)
+        self.assertIn('http://myhost.com:8080', msg)
+
+    @patch('psutil.disk_usage')
+    def test_make_greeting_no_server(self, mock_disk):
+        mock_disk.return_value = MagicMock(free=5 * 1024 ** 3)
+        now = datetime.datetime.now().timestamp()
+        files = MagicMock()
+        files.file_list = [MagicMock(name='a.txt', ctime=now)]
+        cfg = _make_config(file_server_public_url='')
+        msg = make_greeting(
+            'Тест', files, '/tmp',
+            datetime.datetime.now(), cfg
+        )
+        self.assertIn('HTTP-сервер: не настроен', msg)
 
 
 class TestDateFilter(unittest.TestCase):

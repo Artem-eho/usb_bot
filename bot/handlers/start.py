@@ -16,8 +16,12 @@ from bot.utils import error_handler, schedule_menu_deletion
 
 logger = logging.getLogger(__name__)
 
+AVATAR_PATH = os.path.join(
+    os.path.dirname(__file__), '..', 'assets', 'avatar.png'
+)
 
-def make_greeting(user_first_name, files, mount_path, bot_start_time):
+
+def make_greeting(user_first_name, files, mount_path, bot_start_time, cfg):
     import psutil
     today = datetime.date.today().strftime('%d.%m.%Y')
     ext_counter = Counter(
@@ -41,12 +45,22 @@ def make_greeting(user_first_name, files, mount_path, bot_start_time):
         last_file_info = 'Нет файлов'
     uptime = datetime.datetime.now() - bot_start_time
     uptime_str = str(uptime).split('.')[0]
+
+    if cfg.file_server_public_url:
+        server_status = (
+            f"HTTP-сервер: работает "
+            f"({cfg.file_server_public_url}:{cfg.file_server_port})"
+        )
+    else:
+        server_status = "HTTP-сервер: не настроен"
+
     return (
         f"Привет, {user_first_name}!\n\n"
         f"Сегодня: {today}\n"
         f"Файлов в папке: {len(files.file_list)} ({ext_info})\n"
         f"Свободно на диске: {free_gb: .2f} ГБ\n"
-        f"Аптайм бота: {uptime_str}\n\n"
+        f"Аптайм бота: {uptime_str}\n"
+        f"{server_status}\n\n"
         f"Последний файл:\n{last_file_info}"
     )
 
@@ -66,7 +80,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     files.get_files(path=cfg.mount_path)
     bot_start_time = context.bot_data['bot_start_time']
     message = make_greeting(
-        user.first_name, files, cfg.mount_path, bot_start_time
+        user.first_name, files, cfg.mount_path, bot_start_time, cfg
     )
 
     keyboard = [
@@ -76,9 +90,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         [InlineKeyboardButton("🚪 Выход", callback_data=CB_EXIT)],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    sent_message = await update.message.reply_text(
-        message, reply_markup=reply_markup
-    )
+    if os.path.exists(AVATAR_PATH):
+        with open(AVATAR_PATH, 'rb') as avatar:
+            sent_message = await update.message.reply_photo(
+                photo=avatar,
+                caption=message,
+                reply_markup=reply_markup,
+            )
+    else:
+        sent_message = await update.message.reply_text(
+            message, reply_markup=reply_markup
+        )
     asyncio.create_task(schedule_menu_deletion(
         context, sent_message.chat_id, sent_message.message_id,
         cfg.menu_lifetime_seconds
